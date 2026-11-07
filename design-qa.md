@@ -59,3 +59,13 @@ final result: passed
 Edge / Playwright 实际通过：SVG加载、六个首页入口、反选、值搜索、条件OR、数值比较、空值及学号前导零；照片多图导入、切换肖像、大图查看、移除；学生实际ZIP包含保留照片且排除移除照片；汇编Markdown下载、月历选择返回每日简报。脚本错误为 `[]`，结果记录于 `output/playwright/latest-results.json`。
 
 最终代码 `npm run build` 通过、`npm test` 9项通过。汇编基于当前会话，待办不是历史快照；照片不持久化。正式加密与磁盘资料库仍为后续工程。
+
+
+## 2026-11-07 用户登录与桌面发布
+
+- 登录页改为用户名/密码，创建用户与恢复密钥重设独立入口，无资料库选择器。已检查1536px截图，卡片居中，正文14px。
+- 浏览器完整流程通过：注册、错误密码拒绝、密码恢复、学生/照片/记录刷新保留、保存失败重试、备份及简报。修复StrictMode重复初始化导致保存提示停留的问题。
+- 14项业务/存储逻辑测试、4项托管兼容测试通过；真实Electron窗口验证渲染进程无require/process。
+- Windows x64打包后实际启动通过，确认app.isPackaged、ASAR静态资源、Node JSZip加密备份及退出重开保留学号前导零。Mac/Linux本轮验证为原生CI构建成功，未宣称在本机实际运行。
+- GitHub Actions六组构建成功并发布14个应用文件和SHA256SUMS.txt：https://github.com/Simple53/CounselorBench/actions/runs/42380801075 。发布页：https://github.com/Simple53/CounselorBench/releases/tag/v0.1.0 。
+- 程序采用Electron与本地加密快照；未配置商业签名/Apple公证，SQLCipher仍为后续工作。用户数据、恢复密钥、缓存与测试输出没有上传。
