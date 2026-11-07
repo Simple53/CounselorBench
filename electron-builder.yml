@@ -1,0 +1,43 @@
+appId: com.simple53.counselorbench
+productName: CounselorBench
+copyright: Copyright © 2026 Simple53
+asar: true
+npmRebuild: false
+compression: normal
+directories:
+  output: release
+  buildResources: build
+files:
+  - desktop/**
+  - server/**
+  - dist/client/**
+  - build/icon.png
+  - package.json
+  - "!dist/client/assets/workbench-icon.png"
+icon: build/icon.png
+artifactName: CounselorBench-${version}-${os}-${arch}.${ext}
+win:
+  target: [nsis, portable]
+nsis:
+  artifactName: CounselorBench-${version}-windows-${arch}-setup.${ext}
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: 辅导员工作台
+  deleteAppDataOnUninstall: false
+portable:
+  artifactName: CounselorBench-${version}-windows-${arch}-portable.${ext}
+mac:
+  target: [dmg, zip]
+  category: public.app-category.education
+  identity: "-"
+  hardenedRuntime: false
+dmg:
+  sign: false
+linux:
+  target: [AppImage, deb, rpm]
+  category: Education
+  executableName: counselorbench
+  maintainer: Simple53 <74480804+Simple53@users.noreply.github.com>

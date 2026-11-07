@@ -1,0 +1,50 @@
+{
+  "name": "counselorbench",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && node scripts/prepare-sites-build.mjs",
+    "preview": "vite preview",
+    "test": "node --test tests/model.test.mjs tests/workflow.test.mjs tests/care.test.mjs tests/vault.test.mjs tests/accounts.test.mjs",
+    "test:sites": "node --test tests/sites-worker.test.mjs",
+    "start": "node scripts/launch.mjs",
+    "dev:local": "node server/local.mjs --dev",
+    "desktop": "npm run build && electron .",
+    "desktop:pack": "npm run build && electron-builder --dir --publish never",
+    "dist:win": "npm run build && electron-builder --win --publish never",
+    "dist:mac": "npm run build && electron-builder --mac --publish never",
+    "dist:linux": "npm run build && electron-builder --linux --publish never",
+    "test:desktop": "node scripts/smoke-desktop.mjs"
+  },
+  "dependencies": {
+    "jszip": "^3.10.2"
+  },
+  "devDependencies": {
+    "prettier": "^3.9.10",
+    "@tabler/icons-react": "^3.50.0",
+    "@tanstack/react-table": "^8.21.3",
+    "@vitejs/plugin-react": "5.0.4",
+    "exceljs": "^4.4.0",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "react-grid-layout": "^1.5.4",
+    "react-resizable": "^4.0.2",
+    "recharts": "^3.10.1",
+    "vite": "6.4.2",
+    "electron": "45.2.3",
+    "electron-builder": "26.18.0"
+  },
+  "description": "离线辅导员工作台：学生档案、工作记录与本地加密存储",
+  "author": {
+    "name": "Simple53",
+    "email": "74480804+Simple53@users.noreply.github.com"
+  },
+  "main": "desktop/main.mjs",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Simple53/CounselorBench.git"
+  },
+  "license": "UNLICENSED"
+}
