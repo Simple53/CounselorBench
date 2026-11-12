@@ -274,8 +274,13 @@ export class VaultStore {
       }
       const dir = this.directory(vault.id),
         file = path.join(dir, "database", "state.scenc");
-      await mkdir(path.join(dir, "backups"), { recursive: true });
-      await copyFile(file, path.join(dir, "backups", "previous.scenc"));
+      const businessChanged =
+        JSON.stringify({ ...current.state, prefs: undefined }) !==
+        JSON.stringify({ ...state, prefs: undefined });
+      if (businessChanged) {
+        await mkdir(path.join(dir, "backups"), { recursive: true });
+        await copyFile(file, path.join(dir, "backups", "previous.scenc"));
+      }
       const next = { revision: revision + 1, state };
       await atomic(
         file,
@@ -326,6 +331,54 @@ export class VaultStore {
         );
       }
       return zip.generateAsync({ type: "nodebuffer", compression: "STORE" });
+    });
+  }
+  async importBackup(zipBytes) {
+    const ZIP = (await import("jszip")).default;
+    let zip;
+    try {
+      zip = await ZIP.loadAsync(zipBytes);
+    } catch {
+      throw Error("备份文件不是有效的 ZIP 压缩包");
+    }
+    const metaFile = zip.file("workspace.json"),
+      stateFile = zip.file("database/state.scenc");
+    if (!metaFile || !stateFile)
+      throw Error("备份包缺少必要的加密工作区文件");
+    const meta = JSON.parse(await metaFile.async("string"));
+    checkId(meta.id);
+    if (
+      meta.version !== 1 ||
+      meta.kdf !== "scrypt-N32768-r8-p1" ||
+      !meta.salt ||
+      !meta.passwordWrap ||
+      !meta.recoveryWrap
+    )
+      throw Error("备份包版本或加密参数不受支持");
+    return this.serial(meta.id, async () => {
+      const dir = this.directory(meta.id);
+      await mkdir(path.join(dir, "database"), { recursive: true });
+      await mkdir(path.join(dir, "managed_files"), { recursive: true });
+      await mkdir(path.join(dir, "backups"), { recursive: true });
+      await atomic(
+        path.join(dir, "database", "state.scenc"),
+        await stateFile.async("nodebuffer"),
+      );
+      for (const [name, entry] of Object.entries(zip.files)) {
+        if (entry.dir || !name.startsWith("managed_files/")) continue;
+        const base = path.posix.basename(name);
+        if (!base.endsWith(".scenc")) continue;
+        const fileId = checkId(base.slice(0, -".scenc".length));
+        await atomic(
+          path.join(dir, "managed_files", fileId + ".scenc"),
+          await entry.async("nodebuffer"),
+        );
+      }
+      await atomic(
+        path.join(dir, "workspace.json"),
+        JSON.stringify(meta, null, 2),
+      );
+      return { id: meta.id, name: meta.name, createdAt: meta.createdAt };
     });
   }
 }

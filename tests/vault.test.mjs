@@ -108,6 +108,49 @@ test("并发保存拒绝旧版本，备份可在另一目录恢复且继续追�
     store.putFile(vault, "../escape", Buffer.from("x")),
     /无效/,
   );
+  // 验证 importBackup 一键恢复与 UI 偏好变更不覆盖历史业务备份
+  const backupZipBytes = await store.backup(vault);
+  const importedRoot = path.join(root, "imported-auto");
+  const importedStore = new VaultStore(importedRoot);
+  const importedMeta = await importedStore.importBackup(backupZipBytes);
+  assert.equal(importedMeta.id, vault.id);
+  const unlockedImported = await importedStore.unlock(
+    vault.id,
+    "safe-password-2026",
+  );
+  const beforePrefs = await importedStore.load(unlockedImported);
+  assert.equal(beforePrefs.state.briefs["2026-11-07"], "first");
+  // 先做一次业务变更，生成 backups/previous.scenc（此时 previous 里 briefs 为 first）
+  await importedStore.save(
+    unlockedImported,
+    { ...beforePrefs.state, briefs: { "2026-11-07": "business-v2" } },
+    beforePrefs.revision,
+  );
+  const prevSnapshotBeforeUi = await readFile(
+    path.join(
+      importedStore.directory(vault.id),
+      "backups",
+      "previous.scenc",
+    ),
+  );
+  // 仅修改 prefs 外观配置，不应冲掉 previous.scenc
+  await importedStore.save(
+    unlockedImported,
+    {
+      ...beforePrefs.state,
+      briefs: { "2026-11-07": "business-v2" },
+      prefs: { theme: "dark", font: 16 },
+    },
+    beforePrefs.revision + 1,
+  );
+  const prevSnapshotAfterUi = await readFile(
+    path.join(
+      importedStore.directory(vault.id),
+      "backups",
+      "previous.scenc",
+    ),
+  );
+  assert.deepEqual(prevSnapshotAfterUi, prevSnapshotBeforeUi);
 });
 test("本地API验证来源、CSRF、解锁与锁定，进程重启后要求重新解锁", async (t) => {
   const root = await temporary(t),
@@ -208,6 +251,22 @@ test("本地API验证来源、CSRF、解锁与锁定，进程重启后要求重�
         { headers: { "X-SC-CSRF": status2.csrf, Cookie: cookie } },
       );
       assert.equal(locked.status, 401);
+      const aiBad = await fetch(
+        "http://127.0.0.1:" + restarted.server.address().port + "/api/ai/chat",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-SC-CSRF": status2.csrf,
+          },
+          body: JSON.stringify({
+            endpoint: "http://example.com/v1",
+            model: "qwen2.5:1.5b",
+            messages: [],
+          }),
+        },
+      );
+      assert.equal(aiBad.status, 400);
     } finally {
       await restarted.close();
     }

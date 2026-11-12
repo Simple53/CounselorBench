@@ -29,6 +29,10 @@ export function DataTable({
   onPhotos,
   onPreview,
   onAdd,
+  onImport,
+  onBatchPhotos,
+  onEdit,
+  onDelete,
   onExport,
   onComplete,
   onManageAttachments,
@@ -45,7 +49,9 @@ export function DataTable({
       Object.fromEntries(
         fields.map((f) => [
           f.id,
-          !["summary", "origin", "political", "major"].includes(f.id),
+          !["summary", "origin", "political", "major", "emergencyContact"].includes(
+            f.id,
+          ),
         ]),
       ),
     ),
@@ -221,6 +227,8 @@ export function DataTable({
             {student ? "新增学生" : "新增记录"}
           </Button>
         )}
+        {onImport && <Button onClick={onImport}>Excel 导入</Button>}
+        {onBatchPhotos && <Button onClick={onBatchPhotos}>批量匹配照片</Button>}
         <Button
           onClick={() =>
             onExport(
@@ -275,7 +283,7 @@ export function DataTable({
                     </div>
                   </th>
                 ))}
-                {onComplete && <th>办理</th>}
+                {(onComplete || onEdit || onDelete) && <th>办理</th>}
               </tr>
             ))}
           </thead>
@@ -311,17 +319,41 @@ export function DataTable({
                     )}
                   </td>
                 ))}
-                {onComplete && (
+                {(onComplete || onEdit || onDelete) && (
                   <td>
-                    <Button
-                      disabled={r.original.status === "已完成"}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onComplete(r.original);
-                      }}
-                    >
-                      {actionLabel}
-                    </Button>
+                    <div style={{ display: "flex", gap: 4, flexWrap: "nowrap" }}>
+                      {onComplete && (
+                        <Button
+                          disabled={r.original.status === "已完成"}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onComplete(r.original);
+                          }}
+                        >
+                          {actionLabel}
+                        </Button>
+                      )}
+                      {onEdit && (
+                        <Button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onEdit(r.original);
+                          }}
+                        >
+                          编辑
+                        </Button>
+                      )}
+                      {onDelete && (
+                        <Button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDelete(r.original);
+                          }}
+                        >
+                          删除
+                        </Button>
+                      )}
+                    </div>
                   </td>
                 )}
               </tr>

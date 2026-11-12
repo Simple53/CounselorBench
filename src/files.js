@@ -82,9 +82,17 @@ export async function buildPackage({
   const manifest = [];
   for (const a of collectAttachments(rows, attachments)) {
     if (a.file) {
-      const path = `附件/${a.id}_${safeFilename(a.name)}`;
-      zip.file(path, await a.file.arrayBuffer());
-      manifest.push({ id: a.id, name: a.name, path, status: "已打包" });
+      try {
+        const path = `附件/${a.id}_${safeFilename(a.name)}`;
+        zip.file(path, await a.file.arrayBuffer());
+        manifest.push({ id: a.id, name: a.name, path, status: "已打包" });
+      } catch {
+        manifest.push({
+          id: a.id,
+          name: a.name,
+          status: "缺失：外部路径文件不存在或无法读取",
+        });
+      }
     } else
       manifest.push({
         id: a.id,

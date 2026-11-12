@@ -45,7 +45,29 @@ function hydrate(result) {
                 },
               },
             }
-          : a,
+          : a.path
+            ? {
+                ...a,
+                url:
+                  "/api/path-file/" +
+                  encodeURIComponent(a.id) +
+                  "?workspace=" +
+                  result.workspace.id,
+                file: {
+                  name: a.name,
+                  size: a.size,
+                  type: a.type,
+                  arrayBuffer: async () => {
+                    const r = await request(
+                      "path-file/" + encodeURIComponent(a.id),
+                      undefined,
+                      true,
+                    );
+                    return r.arrayBuffer();
+                  },
+                },
+              }
+            : a,
       ),
     },
   };
@@ -59,7 +81,9 @@ export function LocalWorkspace() {
     [busy, setBusy] = useState(false),
     [recovery, setRecovery] = useState(""),
     [confirmed, setConfirmed] = useState(false),
-    [saved, setSaved] = useState("已保存");
+    [saved, setSaved] = useState("已保存"),
+    [notice, setNotice] = useState(""),
+    [loginName, setLoginName] = useState("");
   const pending = useRef(null),
     bootSequence = useRef(0),
     running = useRef(null),
@@ -75,6 +99,7 @@ export function LocalWorkspace() {
       if (sequence !== bootSequence.current) return;
       if (!data.connected) throw Error();
       csrf = data.csrf;
+      if (typeof window !== "undefined") window.__SC_CSRF = data.csrf;
       setService(data);
       setMode("login");
       try {
@@ -145,7 +170,7 @@ export function LocalWorkspace() {
         try {
           const attachments = [];
           for (const a of snapshot.attachments) {
-            if (a.file && !stored.current.has(a.id)) {
+            if (a.file instanceof Blob && !stored.current.has(a.id)) {
               await request("files/" + a.id, a.file, true);
               stored.current.add(a.id);
             }
@@ -219,6 +244,25 @@ export function LocalWorkspace() {
       setSaved("已导出加密备份");
     } catch (e) {
       setSaved("备份失败：" + e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function restoreBackup(e) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const response = await request("restore", file, true);
+      const data = await response.json();
+      setMode("login");
+      setLoginName(data.workspace.name || "");
+      setNotice(`已导入备份账套「${data.workspace.name}」，请输入密码解锁登录`);
+    } catch (err) {
+      setError(err.message);
     } finally {
       setBusy(false);
     }
@@ -315,14 +359,15 @@ export function LocalWorkspace() {
     <main className="workspace-gate">
       <form className="gate-card" onSubmit={submit}>
         <img src="/assets/workbench-icon.svg" alt="工作台" />
-        <h1>辅导员工作台</h1>
+        <h1>辅智通 · 高校辅导员智慧管理系统</h1>
         {service === null ? (
           <p>正在连接本地服务…</p>
         ) : service.unavailable ? (
           <>
-            <p role="alert">未连接本地服务</p>
-            <Button type="button" onClick={() => setDemo(true)}>
-              演示体验
+            <p style={{ color: "#2563eb", fontWeight: 600 }}>Web 独立免后台测试模式已就绪</p>
+            <p style={{ fontSize: 13, opacity: 0.8 }}>未检测到本地 Node.js 服务。当前页面可直接作为纯前端单页应用进行完整功能测试与交互体验（数据保存在浏览器本地）。</p>
+            <Button primary type="button" onClick={() => setDemo(true)}>
+              免后台直接进入体验
             </Button>
           </>
         ) : (
@@ -336,6 +381,8 @@ export function LocalWorkspace() {
                 name="username"
                 aria-label="用户名"
                 required
+                value={loginName}
+                onChange={(e) => setLoginName(e.target.value)}
                 maxLength={mode === "register" ? 40 : 80}
                 autoComplete="username"
                 autoCapitalize="none"
@@ -381,6 +428,7 @@ export function LocalWorkspace() {
                 />
               </label>
             )}
+            {notice && <p role="status">{notice}</p>}
             {error && (
               <p className="save-error" role="alert">
                 {error}
@@ -418,6 +466,16 @@ export function LocalWorkspace() {
                   >
                     忘记密码
                   </Button>
+                  <label className="file-button">
+                    导入备份恢复
+                    <input
+                      type="file"
+                      aria-label="导入备份恢复"
+                      accept=".zip,application/zip"
+                      disabled={busy}
+                      onChange={restoreBackup}
+                    />
+                  </label>
                 </>
               ) : (
                 <Button

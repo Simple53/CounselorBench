@@ -109,32 +109,56 @@ export function Assistant({
         url.pathname += "/chat/completions";
       abort.current = new AbortController();
       const timer = setTimeout(() => abort.current?.abort(), 90000);
+      const messages = [
+        {
+          role: "system",
+          content:
+            "你是高校辅导员智慧管理系统（辅智通）的本地工作助手。仅基于提供的信息草拟谈话纪要、综合评语、待办建议与工作简报，不编造未记录的事实，不替代处分、资助或心理等专业决定。",
+        },
+        { role: "user", content: text },
+      ];
       let response;
       try {
-        response = await fetch(url, {
-          method: "POST",
-          signal: abort.current.signal,
-          headers: {
-            "Content-Type": "application/json",
-            ...(model.key ? { Authorization: `Bearer ${model.key}` } : {}),
-          },
-          body: JSON.stringify({
-            model: model.model,
-            messages: [
-              {
-                role: "system",
-                content:
-                  "你是辅导员工作助手。仅基于提供的信息草拟建议和简报，不编造已完成事项，不替代处分、资助或心理等专业决定。",
-              },
-              { role: "user", content: text },
-            ],
-            stream: false,
-          }),
-        });
+        if (typeof window !== "undefined" && window.__SC_CSRF) {
+          response = await fetch("/api/ai/chat", {
+            method: "POST",
+            signal: abort.current.signal,
+            headers: {
+              "Content-Type": "application/json",
+              "X-SC-CSRF": window.__SC_CSRF,
+            },
+            body: JSON.stringify({
+              endpoint: model.endpoint,
+              model: model.model,
+              key: model.key,
+              messages,
+            }),
+          });
+        } else {
+          response = await fetch(url, {
+            method: "POST",
+            signal: abort.current.signal,
+            headers: {
+              "Content-Type": "application/json",
+              ...(model.key ? { Authorization: `Bearer ${model.key}` } : {}),
+            },
+            body: JSON.stringify({
+              model: model.model,
+              messages,
+              stream: false,
+            }),
+          });
+        }
       } finally {
         clearTimeout(timer);
       }
-      if (!response.ok) throw Error(`模型请求失败（HTTP ${response.status}）`);
+      if (!response.ok) {
+        let msg = `模型请求失败（HTTP ${response.status}）`;
+        try {
+          msg = (await response.json()).error || msg;
+        } catch {}
+        throw Error(msg);
+      }
       const data = await response.json();
       const answer = data.choices?.[0]?.message?.content;
       if (typeof answer !== "string") throw Error("响应缺少可读内容");
@@ -231,6 +255,35 @@ export function Assistant({
             ))}
           </ul>
           {/* 上方为本地规则建议，不冒充模型生成；模型仅在用户确认发送内容后调用。 */}
+          <div className="ai-quick-actions" style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+            <Button
+              onClick={() =>
+                setText((prev) =>
+                  `请将以下辅导员谈心谈话草稿扩写为结构规范的《谈心谈话记录》（包含：谈话背景、主要沟通内容、学生当前状态、后续跟进措施），不编造未提及的事实：\n\n${prev || "【在此粘贴谈话要点】"}`,
+                )
+              }
+            >
+              谈话纪要润色
+            </Button>
+            <Button
+              onClick={() =>
+                setText((prev) =>
+                  `请从以下工作记录中提取需要后续跟进的【待办事项】（含建议截止节点）及【关注标签】：\n\n${prev || "【在此粘贴记录内容】"}`,
+                )
+              }
+            >
+              提取待办与标签
+            </Button>
+            <Button
+              onClick={() =>
+                setText((prev) =>
+                  `请根据以下学生本学期的基本表现与台账摘要，生成一段150字左右、客观温暖的《学期综合评语草稿》：\n\n${prev || "【在此粘贴学生表现摘要】"}`,
+                )
+              }
+            >
+              生成学期评语
+            </Button>
+          </div>
           <label>
             问题或简报内容
             <textarea

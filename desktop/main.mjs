@@ -46,7 +46,7 @@ if (!app.requestSingleInstanceLock()) {
         minWidth: 1100,
         minHeight: 720,
         show: !smoke,
-        title: "辅导员工作台",
+        title: "辅智通 · 高校辅导员智慧管理系统",
         icon: path.join(project, "build", "icon.png"),
         backgroundColor: "#ffffff",
         webPreferences: {

@@ -28,11 +28,20 @@ import {
   groups,
   modules,
   fields,
+  moduleSchemas,
   initialStudents,
   initialRecords,
   initialTasks,
   monthDays,
 } from "./model.mjs";
+import { ExcelImport } from "./ExcelImport.jsx";
+import { DormView } from "./DormView.jsx";
+import { PartyBuildingView } from "./PartyBuildingView.jsx";
+import { RewardAidView } from "./RewardAidView.jsx";
+import { AcademicStudyView } from "./AcademicStudyView.jsx";
+import { CareerGuidanceView } from "./CareerGuidanceView.jsx";
+import { AccountManagementView } from "./AccountManagementView.jsx";
+import { BatchPhotoImportModal } from "./BatchPhotoImportModal.jsx";
 import {
   recordFields,
   traceFields,
@@ -187,12 +196,15 @@ export function App({ initialData, onDataChange, workspaceControls }) {
     [attachments, setAttachments] = useState(
       initialData?.attachments ?? seedAttachments,
     ),
+    [grades, setGrades] = useState(initialData?.grades ?? []),
     [logs, setLogs] = useState(initialData?.logs ?? []);
   const [photoStudent, setPhotoStudent] = useState("");
   const [selected, setSelected] = useState("s1"),
     [detail, setDetail] = useState(true),
     [recordMode, setRecordMode] = useState("按时间");
   const [modal, setModal] = useState(""),
+    [editingItem, setEditingItem] = useState(null),
+    [extraStudentIds, setExtraStudentIds] = useState([]),
     [setting, setSetting] = useState("外观设置"),
     [toast, setToast] = useState(""),
     [draftFiles, setDraftFiles] = useState([]),
@@ -205,7 +217,11 @@ export function App({ initialData, onDataChange, workspaceControls }) {
   const [aiOpen, setAiOpen] = useState(false),
     [aiDocked, setAiDocked] = useState(false),
     [aiPrompt, setAiPrompt] = useState(""),
-    [model, setModel] = useState({ endpoint: "", model: "", key: "" });
+    [model, setModel] = useState(() => ({
+      endpoint: prefs.aiModel?.endpoint || "",
+      model: prefs.aiModel?.model || "",
+      key: "",
+    }));
   const [briefs, setBriefs] = useState(initialData?.briefs ?? {}),
     [aiBriefDate, setAiBriefDate] = useState("");
   const now = new Date();
@@ -230,6 +246,7 @@ export function App({ initialData, onDataChange, workspaceControls }) {
       records,
       tasks,
       attachments,
+      grades,
       logs,
       careProfiles,
       briefs,
@@ -241,6 +258,7 @@ export function App({ initialData, onDataChange, workspaceControls }) {
     records,
     tasks,
     attachments,
+    grades,
     logs,
     careProfiles,
     briefs,
@@ -314,11 +332,129 @@ export function App({ initialData, onDataChange, workspaceControls }) {
     setSetting(tab);
     setModal("settings");
   }
+  function handleBatchPhotoImport(matched) {
+    const fileList = matched.map((m) => m.file);
+    const addedAttachments = registerFiles(fileList);
+    setAttachments((prev) => [...prev, ...addedAttachments]);
+
+    setStudents((prev) =>
+      prev.map((s) => {
+        const itemIdx = matched.findIndex((m) => m.student.id === s.id);
+        if (itemIdx === -1) return s;
+        const attached = addedAttachments[itemIdx];
+        const newPhotoIds = [...(s.photoIds || []), attached.id];
+        const newAttachmentIds = [...(s.attachmentIds || []), attached.id];
+        return {
+          ...s,
+          photoIds: newPhotoIds,
+          attachmentIds: newAttachmentIds,
+          portraitId: attached.id,
+        };
+      }),
+    );
+  function handleBatchPhotoImport(matched) {
+    const fileList = matched.map((m) => m.file);
+    const addedAttachments = registerFiles(fileList);
+    setAttachments((prev) => [...prev, ...addedAttachments]);
+
+    setStudents((prev) =>
+      prev.map((s) => {
+        const itemIdx = matched.findIndex((m) => m.student.id === s.id);
+        if (itemIdx === -1) return s;
+        const attached = addedAttachments[itemIdx];
+        const newPhotoIds = [...(s.photoIds || []), attached.id];
+        const newAttachmentIds = [...(s.attachmentIds || []), attached.id];
+        return {
+          ...s,
+          photoIds: newPhotoIds,
+          attachmentIds: newAttachmentIds,
+          portraitId: attached.id,
+        };
+      }),
+    );
+    log("批量导入照片", `匹配成功 ${matched.length} 张`, "学生信息");
+    notify(`批量匹配成功，已为 ${matched.length} 位学生绑定肖像照片！`);
+  }
   function addRecord() {
+    setEditingItem(null);
+    setExtraStudentIds([]);
     setDraftFiles([]);
     setDraftIds([]);
     setDraftLinks("");
     setModal("record");
+  }
+    setEditingItem(null);
+    setExtraStudentIds([]);
+    setDraftFiles([]);
+    setDraftIds([]);
+    setDraftLinks("");
+    setModal("record");
+  }
+  function editStudent(row) {
+    const raw = students.find((s) => s.id === row.id) || row;
+    setEditingItem(raw);
+    setDraftFiles([]);
+    setDraftIds(raw.attachmentIds || []);
+    setDraftLinks("");
+    setModal("student");
+  }
+  function deleteStudent(row) {
+    setStudents((s) => s.filter((x) => x.id !== row.id));
+    setCareProfiles((s) => s.filter((x) => x.studentId !== row.id));
+    log("删除学生", row.name, "学生信息", { entityId: row.id });
+    notify(`已删除学生：${row.name}`);
+  }
+  function editRecord(row) {
+    const raw = records.find((r) => r.id === row.id) || row;
+    setEditingItem(raw);
+    setExtraStudentIds([]);
+    setDraftFiles([]);
+    setDraftIds(raw.attachmentIds || []);
+    setDraftLinks("");
+    setModal("record");
+  }
+  function deleteRecord(row) {
+    setRecords((s) => s.filter((x) => x.id !== row.id));
+    log("删除记录", row.title, row.module || page, { entityId: row.id });
+    notify(`已删除记录：${row.title}`);
+  }
+  function handleExcelImport(diff) {
+    let added = 0,
+      updated = 0;
+    setStudents((prev) => {
+      const next = [...prev];
+      for (const item of diff) {
+        const { mode, existingId, ...fieldsData } = item;
+        if (mode === "update" && existingId) {
+          const idx = next.findIndex((s) => s.id === existingId);
+          if (idx !== -1) {
+            next[idx] = { ...next[idx], ...fieldsData };
+            updated++;
+          }
+        } else {
+          next.push({
+            id: crypto.randomUUID(),
+            className: "",
+            major: "",
+            year: "",
+            phone: "",
+            dorm: "",
+            origin: "",
+            political: "",
+            emergencyContact: "",
+            status: "在校",
+            concern: false,
+            attachmentIds: [],
+            attachments: 0,
+            ...fieldsData,
+          });
+          added++;
+        }
+      }
+      return next;
+    });
+    log("导入名单", `新增 ${added} 人，更新 ${updated} 人`, "学生信息");
+    notify(`Excel 导入完成：新增 ${added} 人，更新 ${updated} 人`);
   }
   function preview(row, fs) {
     setPreviewSpec({ row, fields: fs });
@@ -352,15 +488,39 @@ export function App({ initialData, onDataChange, workspaceControls }) {
         .split("\n")
         .map((s) => s.trim())
         .filter(Boolean)
-        .map((path) => ({
-          id: crypto.randomUUID(),
-          name: path.split(/[\\/]/).pop(),
-          path,
-          size: null,
-          file: null,
-          url: null,
-          sensitive: page === "心理健康",
-        }));
+        .map((path) => {
+          const id = crypto.randomUUID();
+          const name = path.split(/[\\/]/).pop();
+          return {
+            id,
+            name,
+            path,
+            size: null,
+            file: initialData
+              ? {
+                  name,
+                  size: null,
+                  type: "",
+                  arrayBuffer: async () => {
+                    const r = await fetch(
+                      "/api/path-file/" + encodeURIComponent(id),
+                      {
+                        headers: {
+                          "X-SC-CSRF": window.__SC_CSRF || "",
+                        },
+                      },
+                    );
+                    if (!r.ok) throw Error("路径文件不可读");
+                    return r.arrayBuffer();
+                  },
+                }
+              : null,
+            url: initialData
+              ? "/api/path-file/" + encodeURIComponent(id)
+              : null,
+            sensitive: page === "心理健康",
+          };
+        });
     setAttachments((s) => [...s, ...added, ...linked]);
     return [
       ...new Set([
@@ -416,13 +576,13 @@ export function App({ initialData, onDataChange, workspaceControls }) {
           <img
             src="/assets/workbench-icon.svg"
             className="app-icon"
-            alt="辅导员工作台图标"
+            alt="辅智通图标"
           />
-          <strong>辅导员工作台</strong>
+          <strong>辅智通 · 高校辅导员智慧管理系统</strong>
         </div>
         {page !== "工作首页" && page !== "工作留痕" && (
           <nav className="view-tabs">
-            {["字段视图", "学生全览", "日历视图"].map((v) => (
+            {["字段视图", "学生全览", "宿舍视图", "日历视图"].map((v) => (
               <button
                 key={v}
                 className={view === v ? "active" : ""}
@@ -476,6 +636,13 @@ export function App({ initialData, onDataChange, workspaceControls }) {
             </section>
           ))}
         </div>
+        <button
+          className="nav-item settings-button"
+          onClick={() => navigate("账户管理")}
+        >
+          <IconUser />
+          账户管理
+        </button>
         <button
           className="nav-item settings-button"
           onClick={() => settings("外观设置")}
@@ -668,6 +835,17 @@ export function App({ initialData, onDataChange, workspaceControls }) {
                     </select>
                     <Button
                       disabled={!current}
+                      onClick={() => {
+                        setAiPrompt(
+                          `请根据以下学生档案与本学期记录，生成一段150字左右、客观温暖的《学期综合评语草稿》，不编造未提及的事实：\n学生：${current?.name}（${current?.className}，${current?.major}，状态：${current?.status}）\n关联记录：\n${personRecords.map((r) => `- [${r.date}] ${r.module} · ${r.title}：${r.summary}`).join("\n") || "暂无专项台账记录"}`,
+                        );
+                        setAiOpen(true);
+                      }}
+                    >
+                      AI 生成学期评语
+                    </Button>
+                    <Button
+                      disabled={!current}
                       onClick={() =>
                         requestExport(
                           personRecords,
@@ -711,6 +889,33 @@ export function App({ initialData, onDataChange, workspaceControls }) {
                       </section>
                     ))}
                 </>
+              ) : view === "宿舍视图" ? (
+                <DormView
+                  students={studentRows}
+                  records={publicRecords}
+                  onSelectStudent={(s) => {
+                    setSelected(s.id);
+                    setPage("学生信息");
+                    setView("字段视图");
+                    setDetail(true);
+                  }}
+                  onUpdateDorm={(studentId, dorm) => {
+                    const target = students.find((s) => s.id === studentId);
+                    setStudents((rows) =>
+                      rows.map((s) =>
+                        s.id === studentId ? { ...s, dorm } : s,
+                      ),
+                    );
+                    if (target) {
+                      log(
+                        "调整宿舍",
+                        `${target.name} -> ${dorm || "未分配"}`,
+                        "日常管理",
+                      );
+                      notify(`已更新 ${target.name} 的宿舍为 ${dorm || "未分配"}`);
+                    }
+                  }}
+                />
               ) : page === "心理健康" ? (
                 <Psychology
                   profiles={careProfiles}
@@ -736,12 +941,74 @@ export function App({ initialData, onDataChange, workspaceControls }) {
                     setDetail(true);
                   },
                   onAdd: () => {
+                    setEditingItem(null);
                     setDraftFiles([]);
                     setDraftIds([]);
                     setDraftLinks("");
                     setModal("student");
                   },
+                  onImport: () => setModal("excel-import"),
+                  onBatchPhotos: () => setModal("batch-photos"),
+                  onEdit: editStudent,
+                  onDelete: deleteStudent,
                 })
+              ) : page === "党团建设" ? (
+                <PartyBuildingView
+                  students={studentRows}
+                  records={publicRecords}
+                  onSelectStudent={(s) => {
+                    setSelected(s.id);
+                    setDetail(true);
+                  }}
+                  onAddRecord={() => {
+                    addRecord();
+                  }}
+                />
+              ) : page === "奖惩助贷" ? (
+                <RewardAidView
+                  students={studentRows}
+                  records={publicRecords}
+                  onSelectStudent={(s) => {
+                    setSelected(s.id);
+                    setDetail(true);
+                  }}
+                  onAddRecord={() => {
+                    addRecord();
+                  }}
+                />
+              ) : page === "学风建设" ? (
+                <AcademicStudyView
+                  students={studentRows}
+                  grades={grades}
+                  onImportGrades={(importedGrades) => {
+                    setGrades((prev) => [...prev, ...importedGrades]);
+                    notify(`成功导入 ${importedGrades.length} 条成绩记录！`);
+                  }}
+                  onSelectStudent={(s) => {
+                    setSelected(s.id);
+                    setDetail(true);
+                  }}
+                  onAddRecord={() => {
+                    addRecord();
+                  }}
+                />
+              ) : page === "就业指导" ? (
+                <CareerGuidanceView
+                  students={studentRows}
+                  records={publicRecords}
+                  onSelectStudent={(s) => {
+                    setSelected(s.id);
+                    setDetail(true);
+                  }}
+                  onAddRecord={() => {
+                    addRecord();
+                  }}
+                />
+              ) : page === "账户管理" ? (
+                <AccountManagementView
+                  currentAccount={{ name: "辅导员工作台", id: "smart-counselor-local" }}
+                  onLock={() => notify("已安全退出本地账户")}
+                />
               ) : (
                 tableFor(
                   page,
@@ -751,6 +1018,8 @@ export function App({ initialData, onDataChange, workspaceControls }) {
                   {
                     onAdd: addRecord,
                     onComplete: completeRecord,
+                    onEdit: editRecord,
+                    onDelete: deleteRecord,
                   },
                 )
               )}
@@ -783,10 +1052,15 @@ export function App({ initialData, onDataChange, workspaceControls }) {
                 </div>
                 <div className="detail-title">
                   <h3>学生信息</h3>
-                  <button onClick={() => settings("字段配置")}>
-                    <IconSettings size={16} />
-                    配置字段
-                  </button>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => editStudent(current)}>
+                      编辑档案
+                    </button>
+                    <button onClick={() => settings("字段配置")}>
+                      <IconSettings size={16} />
+                      配置字段
+                    </button>
+                  </div>
                 </div>
                 <dl>
                   {prefs.detailFields.map((id) => {
@@ -860,9 +1134,20 @@ export function App({ initialData, onDataChange, workspaceControls }) {
       />
       {["student", "record"].includes(modal) && (
         <Modal
-          title={modal === "student" ? "新增学生" : "新增记录"}
+          title={
+            modal === "student"
+              ? editingItem
+                ? "编辑学生"
+                : "新增学生"
+              : editingItem
+                ? "编辑记录"
+                : "新增记录"
+          }
           wide
-          onClose={() => setModal("")}
+          onClose={() => {
+            setModal("");
+            setEditingItem(null);
+          }}
         >
           <form
             onSubmit={(e) => {
@@ -870,48 +1155,118 @@ export function App({ initialData, onDataChange, workspaceControls }) {
               const d = Object.fromEntries(new FormData(e.currentTarget));
               if (
                 modal === "student" &&
-                students.some((s) => s.number === d.number.trim())
+                students.some(
+                  (s) =>
+                    s.number === d.number.trim() && s.id !== editingItem?.id,
+                )
               ) {
                 notify("学号已存在");
                 return;
               }
               const attachmentIds = collectDraft();
               if (modal === "student") {
-                const student = {
-                  phone: "",
-                  origin: "",
-                  political: "",
-                  status: "在校",
-                  ...d,
-                  id: crypto.randomUUID(),
-                  name: d.name.trim(),
-                  number: d.number.trim(),
-                  concern: false,
-                  attachmentIds,
-                  attachments: attachmentIds.length,
-                };
-                setStudents((s) => [...s, student]);
-                setSelected(student.id);
-                log("新增学生", student.name, "学生信息");
+                if (editingItem) {
+                  setStudents((s) =>
+                    s.map((x) =>
+                      x.id === editingItem.id
+                        ? {
+                            ...x,
+                            ...d,
+                            name: d.name.trim(),
+                            number: d.number.trim(),
+                            attachmentIds,
+                            attachments: attachmentIds.length,
+                          }
+                        : x,
+                    ),
+                  );
+                  log("编辑学生", d.name.trim(), "学生信息", {
+                    entityId: editingItem.id,
+                  });
+                } else {
+                  const student = {
+                    phone: "",
+                    dorm: "",
+                    origin: "",
+                    political: "",
+                    emergencyContact: "",
+                    status: "在校",
+                    ...d,
+                    id: crypto.randomUUID(),
+                    name: d.name.trim(),
+                    number: d.number.trim(),
+                    concern: false,
+                    attachmentIds,
+                    attachments: attachmentIds.length,
+                  };
+                  setStudents((s) => [...s, student]);
+                  setSelected(student.id);
+                  log("新增学生", student.name, "学生信息");
+                }
               } else {
-                const r = {
-                  ...d,
-                  id: crypto.randomUUID(),
-                  module: page,
-                  sensitive: page === "心理健康",
-                  attachmentIds,
-                };
-                setRecords((s) => [...s, r]);
-                log(
-                  d.status === "已完成" ? "完成记录" : "新增记录",
-                  page === "心理健康" ? "心理谈话记录更新" : d.title,
-                  page,
-                  {
-                    entityId: r.id,
-                    attachmentIds: page === "心理健康" ? [] : r.attachmentIds,
-                  },
-                );
+                const extraTags = (moduleSchemas[page] || [])
+                  .map(([key, label]) => (d[key] ? `${label}：${d[key]}` : ""))
+                  .filter(Boolean)
+                  .join("；");
+                const fullSummary =
+                  extraTags && !String(d.summary || "").includes(extraTags)
+                    ? `【${extraTags}】${d.summary}`
+                    : d.summary;
+                if (editingItem) {
+                  setRecords((s) =>
+                    s.map((x) =>
+                      x.id === editingItem.id
+                        ? {
+                            ...x,
+                            ...d,
+                            summary: fullSummary,
+                            attachmentIds,
+                          }
+                        : x,
+                    ),
+                  );
+                  log(
+                    d.status === "已完成" ? "完成记录" : "编辑记录",
+                    page === "心理健康" ? "心理谈话记录更新" : d.title,
+                    editingItem.module || page,
+                    {
+                      entityId: editingItem.id,
+                      attachmentIds:
+                        page === "心理健康" ? [] : attachmentIds,
+                    },
+                  );
+                } else {
+                  const targets = [
+                    d.studentId,
+                    ...extraStudentIds.filter((id) => id && id !== d.studentId),
+                  ];
+                  const createdRecords = (targets.length ? targets : [""]).map(
+                    (stuId) => ({
+                      ...d,
+                      studentId: stuId,
+                      summary: fullSummary,
+                      id: crypto.randomUUID(),
+                      module: page,
+                      sensitive: page === "心理健康",
+                      attachmentIds,
+                    }),
+                  );
+                  setRecords((s) => [...s, ...createdRecords]);
+                  log(
+                    d.status === "已完成" ? "完成记录" : "新增记录",
+                    page === "心理健康" ? "心理谈话记录更新" : d.title,
+                    page,
+                    {
+                      entityId: createdRecords[0].id,
+                      attachmentIds:
+                        page === "心理健康"
+                          ? []
+                          : createdRecords[0].attachmentIds,
+                    },
+                  );
+                }
               }
+              setEditingItem(null);
               setModal("");
               notify(
                 initialData
@@ -924,15 +1279,28 @@ export function App({ initialData, onDataChange, workspaceControls }) {
               {modal === "student" ? (
                 <>
                   {[
-                    ["name", "姓名"],
-                    ["number", "学号"],
-                    ["className", "班级"],
-                    ["major", "专业"],
-                    ["year", "年级"],
-                  ].map(([id, label]) => (
+                    ["name", "姓名", true],
+                    ["number", "学号", true],
+                    ["className", "班级", true],
+                    ["major", "专业", true],
+                    ["year", "年级", true],
+                    ["phone", "联系电话", false],
+                    ["dorm", "宿舍（如 1栋101）", false],
+                    ["origin", "生源地", false],
+                    ["political", "政治面貌", false],
+                    ["status", "在校状态", false],
+                    ["emergencyContact", "紧急联系人及电话", false],
+                  ].map(([id, label, req]) => (
                     <label key={id}>
                       {label}
-                      <input name={id} required maxLength={80} />
+                      <input
+                        name={id}
+                        required={req}
+                        defaultValue={
+                          editingItem?.[id] ?? (id === "status" ? "在校" : "")
+                        }
+                        maxLength={80}
+                      />
                     </label>
                   ))}
                 </>
@@ -942,7 +1310,11 @@ export function App({ initialData, onDataChange, workspaceControls }) {
                     label="所属学生"
                     name="studentId"
                     defaultValue={
-                      ["工作实务", "专业成长"].includes(page) ? "" : selected
+                      editingItem
+                        ? editingItem.studentId
+                        : ["工作实务", "专业成长"].includes(page)
+                          ? ""
+                          : selected
                     }
                     required={!["工作实务", "专业成长"].includes(page)}
                     options={students.map((s) => ({
@@ -954,14 +1326,18 @@ export function App({ initialData, onDataChange, workspaceControls }) {
                   />
                   <label>
                     记录标题
-                    <input name="title" required />
+                    <input
+                      name="title"
+                      defaultValue={editingItem?.title || ""}
+                      required
+                    />
                   </label>
                   <label>
                     日期
                     <input
                       name="date"
                       type="date"
-                      defaultValue={today()}
+                      defaultValue={editingItem?.date || today()}
                       required
                     />
                   </label>
@@ -969,16 +1345,97 @@ export function App({ initialData, onDataChange, workspaceControls }) {
                     label="状态"
                     name="status"
                     required
-                    defaultValue={page === "心理健康" ? "已完成" : "待跟进"}
+                    defaultValue={
+                      editingItem?.status ||
+                      (page === "心理健康" ? "已完成" : "待跟进")
+                    }
                     options={statusOptions}
                     onCreate={(q) => {
                       setStatusOptions((s) => [...s, q]);
                       return q;
                     }}
                   />
+                  {(moduleSchemas[page] || []).map(
+                    ([key, label, typeOrOpts, placeholder]) => (
+                      <label key={key}>
+                        {label}
+                        {Array.isArray(typeOrOpts) ? (
+                          <select
+                            name={key}
+                            defaultValue={editingItem?.[key] || ""}
+                          >
+                            <option value="">-- 请选择 --</option>
+                            {typeOrOpts.map((opt) => (
+                              <option key={opt} value={opt}>
+                                {opt}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            name={key}
+                            type={typeOrOpts || "text"}
+                            defaultValue={editingItem?.[key] || ""}
+                            placeholder={placeholder || ""}
+                          />
+                        )}
+                      </label>
+                    ),
+                  )}
+                  {!editingItem &&
+                    !["工作实务", "专业成长"].includes(page) && (
+                      <details className="full">
+                        <summary>批量同步关联其他学生（如同宿舍/同班活动）</summary>
+                        <div className="check-list attachment-picker">
+                          {students.slice(0, 60).map((s) => (
+                            <label key={s.id}>
+                              <input
+                                type="checkbox"
+                                checked={extraStudentIds.includes(s.id)}
+                                onChange={(e) =>
+                                  setExtraStudentIds((prev) =>
+                                    e.target.checked
+                                      ? [...prev, s.id]
+                                      : prev.filter((id) => id !== s.id),
+                                  )
+                                }
+                              />
+                              {s.name} · {s.number}
+                            </label>
+                          ))}
+                        </div>
+                      </details>
+                    )}
                   <label className="full">
-                    内容摘要
-                    <textarea name="summary" required />
+                    <span
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                      }}
+                    >
+                      内容摘要
+                      <Button
+                        type="button"
+                        onClick={(e) => {
+                          const form = e.currentTarget.closest("form");
+                          const raw =
+                            form?.querySelector("textarea[name=summary]")
+                              ?.value || "";
+                          setAiPrompt(
+                            `请将以下辅导员工作/谈心记录要点扩写为结构清晰、表述规范的台账摘要，不编造未提及的事实：\n\n${raw}`,
+                          );
+                          setAiOpen(true);
+                        }}
+                      >
+                        AI 润色摘要
+                      </Button>
+                    </span>
+                    <textarea
+                      name="summary"
+                      defaultValue={editingItem?.summary || ""}
+                      required
+                    />
                   </label>
                 </>
               )}
@@ -1194,6 +1651,20 @@ export function App({ initialData, onDataChange, workspaceControls }) {
           </div>
         </Modal>
       )}
+      {modal === "batch-photos" && (
+        <BatchPhotoImportModal
+          students={students}
+          onConfirm={handleBatchPhotoImport}
+          onClose={() => setModal("")}
+        />
+      )}
+      {modal === "excel-import" && (
+        <ExcelImport
+          existingStudents={students}
+          onImport={handleExcelImport}
+          onClose={() => setModal("")}
+        />
+      )}
       {modal === "export" && exportSpec && (
         <Modal
           title="导出数据与附件"
@@ -1202,6 +1673,15 @@ export function App({ initialData, onDataChange, workspaceControls }) {
           <p>
             {exportSpec.title} · {exportSpec.rows.length} 条记录
           </p>
+          {exportSpec.rows.some((r) =>
+            /(\d{17}[\dXx]|1[3-9]\d{9}|抑郁|确诊|危机|处分)/.test(
+              JSON.stringify(r),
+            ),
+          ) && (
+            <p role="alert" style={{ fontSize: 13, color: "var(--danger, #b42318)" }}>
+              敏感信息提醒：检测到导出范围内包含完整手机号、证件号或重点关注词，请确认接收对象权限。
+            </p>
+          )}
           <label>
             数据格式
             <select
@@ -1493,13 +1973,25 @@ export function App({ initialData, onDataChange, workspaceControls }) {
                       />
                     </label>
                   ))}
-                  <Button onClick={() => notify("模型配置已保存至本次会话")}>
+                  <Button
+                    onClick={() => {
+                      patchPrefs({
+                        aiModel: {
+                          endpoint: model.endpoint.trim(),
+                          model: model.model.trim(),
+                        },
+                      });
+                      notify("模型配置已持久化保存");
+                    }}
+                  >
                     保存配置
                   </Button>
                   <Button
-                    onClick={() =>
-                      setModel({ endpoint: "", model: "", key: "" })
-                    }
+                    onClick={() => {
+                      setModel({ endpoint: "", model: "", key: "" });
+                      patchPrefs({ aiModel: { endpoint: "", model: "" } });
+                      notify("模型配置已清除");
+                    }}
                   >
                     清除配置
                   </Button>

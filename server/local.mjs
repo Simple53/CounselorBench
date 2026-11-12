@@ -24,13 +24,13 @@ export async function startLocal({
             homedir(),
             "Library",
             "Application Support",
-            "CounselorBench",
+            "SmartCounselor",
             "workspaces",
           )
         : path.join(
             process.env.XDG_DATA_HOME ||
               path.join(homedir(), ".local", "share"),
-            "CounselorBench",
+            "SmartCounselor",
             "workspaces",
           )),
   dev = false,
@@ -88,13 +88,82 @@ export async function startLocal({
           )?.[1],
           session = sessions.get(cookie);
         const isFile =
-          req.method === "GET" && url.pathname.startsWith("/api/files/");
+          req.method === "GET" &&
+          (url.pathname.startsWith("/api/files/") ||
+            url.pathname.startsWith("/api/path-file/"));
         if (!isFile && req.headers["x-sc-csrf"] !== csrf)
           return json(res, { error: "请求校验失效，请刷新页面" }, 403);
+        if (req.method === "POST" && url.pathname === "/api/restore") {
+          const bytes = await body(req, 200 * 1024 * 1024);
+          const restored = await store.importBackup(bytes);
+          return json(res, { workspace: restored });
+        }
         const payload =
           req.method === "POST" && !url.pathname.startsWith("/api/files/")
             ? JSON.parse((await body(req, 8 * 1024 * 1024)).toString() || "{}")
             : {};
+        if (req.method === "POST" && url.pathname === "/api/ai/chat") {
+          let target;
+          try {
+            target = new URL(String(payload.endpoint || ""));
+          } catch {
+            return json(res, { error: "API 地址格式无效" }, 400);
+          }
+          if (!["http:", "https:"].includes(target.protocol))
+            return json(res, { error: "API 地址必须使用 HTTP 或 HTTPS" }, 400);
+          if (
+            target.protocol === "http:" &&
+            !["localhost", "127.0.0.1", "[::1]"].includes(target.hostname)
+          )
+            return json(res, { error: "远程 API 请使用 HTTPS" }, 400);
+          if (
+            ["localhost", "127.0.0.1", "[::1]"].includes(target.hostname) &&
+            target.port === String(server.address().port)
+          )
+            return json(res, { error: "API 地址不能指向工作台自身端口" }, 400);
+          target.pathname = target.pathname.replace(/\/$/, "");
+          if (!target.pathname.endsWith("/chat/completions"))
+            target.pathname += "/chat/completions";
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 90000);
+          try {
+            const upstream = await fetch(target, {
+              method: "POST",
+              signal: controller.signal,
+              headers: {
+                "Content-Type": "application/json",
+                ...(payload.key
+                  ? { Authorization: `Bearer ${payload.key}` }
+                  : {}),
+              },
+              body: JSON.stringify({
+                model: payload.model,
+                messages: payload.messages,
+                stream: false,
+              }),
+            });
+            if (!upstream.ok)
+              return json(
+                res,
+                { error: `模型请求失败（HTTP ${upstream.status}）` },
+                upstream.status,
+              );
+            return json(res, await upstream.json());
+          } catch (err) {
+            return json(
+              res,
+              {
+                error:
+                  err.name === "AbortError"
+                    ? "模型请求超时"
+                    : "连接本地或远程模型服务失败，请确认模型服务已启动",
+              },
+              502,
+            );
+          } finally {
+            clearTimeout(timer);
+          }
+        }
         const login = (vault) => {
           if (session) {
             session.key.fill(0);
@@ -238,6 +307,37 @@ export async function startLocal({
             return res.end(bytes);
           }
         }
+        if (
+          req.method === "GET" &&
+          url.pathname.startsWith("/api/path-file/")
+        ) {
+          const id = decodeURIComponent(
+            url.pathname.slice("/api/path-file/".length),
+          );
+          const { state } = await store.load(session),
+            a = state.attachments.find((x) => x.id === id && x.path);
+          if (!a) return json(res, { error: "未找到登记路径附件" }, 404);
+          const rootDir = state.prefs?.attachmentRoot || project;
+          const target = path.isAbsolute(a.path)
+            ? path.normalize(a.path)
+            : path.resolve(rootDir, a.path);
+          const bytes = await readFile(target);
+          const ext = path.extname(a.name || target).toLowerCase();
+          const mime =
+            {
+              ".png": "image/png",
+              ".jpg": "image/jpeg",
+              ".jpeg": "image/jpeg",
+              ".gif": "image/gif",
+              ".webp": "image/webp",
+              ".pdf": "application/pdf",
+            }[ext] || "application/octet-stream";
+          res.writeHead(200, {
+            "Content-Type": mime,
+            "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(a.name || path.basename(target))}`,
+          });
+          return res.end(bytes);
+        }
         return json(res, { error: "接口不存在" }, 404);
       }
       if (vite) return vite.middlewares(req, res);
@@ -292,7 +392,7 @@ export async function startLocal({
     vite?.close();
   });
   console.log(
-    `辅导员工作台 http://127.0.0.1:${server.address().port}/\n本地数据目录：${store.root}`,
+    `辅智通 · 高校辅导员智慧管理系统 http://127.0.0.1:${server.address().port}/\n本地数据目录：${store.root}`,
   );
   return {
     server,

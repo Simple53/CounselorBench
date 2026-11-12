@@ -1,5 +1,5 @@
 {
-  "name": "counselorbench",
+  "name": "smart-counselor",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -36,7 +36,7 @@
     "electron": "45.2.3",
     "electron-builder": "26.18.0"
   },
-  "description": "离线辅导员工作台：学生档案、工作记录与本地加密存储",
+  "description": "辅智通（SmartCounselor）：高校辅导员智慧管理系统，学生档案、工作台账、本地加密存储与AI协同",
   "author": {
     "name": "Simple53",
     "email": "74480804+Simple53@users.noreply.github.com"
