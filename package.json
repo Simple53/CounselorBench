@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build && node scripts/prepare-sites-build.mjs",
     "preview": "vite preview",
-    "test": "node --test tests/model.test.mjs tests/workflow.test.mjs tests/care.test.mjs tests/vault.test.mjs tests/accounts.test.mjs",
+    "test": "node --test tests/model.test.mjs tests/workflow.test.mjs tests/care.test.mjs tests/vault.test.mjs tests/accounts.test.mjs tests/leave.test.mjs tests/leave-insights.test.mjs tests/school-links.test.mjs",
     "test:sites": "node --test tests/sites-worker.test.mjs",
     "start": "node scripts/launch.mjs",
     "dev:local": "node server/local.mjs --dev",
@@ -16,7 +16,9 @@
     "dist:win": "npm run build && electron-builder --win --publish never",
     "dist:mac": "npm run build && electron-builder --mac --publish never",
     "dist:linux": "npm run build && electron-builder --linux --publish never",
-    "test:desktop": "node scripts/smoke-desktop.mjs"
+    "test:desktop": "node scripts/smoke-desktop.mjs",
+    "mobile:dev": "npm --prefix mobile run dev -- --host 127.0.0.1 --port 4176",
+    "mobile:build": "npm --prefix mobile run build"
   },
   "dependencies": {
     "jszip": "^3.10.2"

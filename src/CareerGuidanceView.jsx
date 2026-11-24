@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { Button } from "./ui.jsx";
+import { Button, Card, Chip } from "./ui.jsx";
 import { getRecommendedCompanies } from "./careerRecommendations.mjs";
 
 export function CareerGuidanceView({ students, records, onSelectStudent, onAddRecord }) {
@@ -80,50 +80,47 @@ export function CareerGuidanceView({ students, records, onSelectStudent, onAddRe
         </Button>
       </div>
 
-      <div className="career-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(380px, 1fr))", gap: 14, marginTop: 14 }}>
+      <div className="advisor-grid">
         {list.map((item) => {
           const s = item.student;
           return (
-            <article
+            <Card
               key={s.id}
-              className="widget"
-              style={{ padding: 16, display: "flex", flexDirection: "column", gap: 10, cursor: "pointer" }}
+              style={{ padding: 16, gap: 10, cursor: "pointer" }}
               onClick={() => onSelectStudent(s)}
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                 <div>
                   <strong style={{ fontSize: 16 }}>{s.name}</strong>
-                  <span style={{ marginLeft: 8, fontSize: 13, opacity: 0.8 }}>{s.number}</span>
-                  <div style={{ fontSize: 12, opacity: 0.7, marginTop: 2 }}>{s.className} · {s.major}</div>
+                  <span className="tabular" style={{ marginLeft: 8, fontSize: 13, color: "var(--muted)" }}>{s.number}</span>
+                  <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>{s.className} · {s.major}</div>
                 </div>
-                <span className="care-badge" style={{ background: "#dbeafe", color: "#1d4ed8" }}>
-                  {item.careerTarget}
-                </span>
+                <Chip color="accent">{item.careerTarget}</Chip>
               </div>
 
-              <div style={{ fontSize: 13, background: "var(--surface-2, rgba(0,0,0,0.03))", padding: 8, borderRadius: 6 }}>
+              <div style={{ fontSize: 13, background: "var(--surface-secondary)", padding: 10, borderRadius: 8 }}>
                 <div>
                   <strong>谈话意向：</strong>
                   <span>{item.careerTarget} · 意向城市：{item.targetCity}</span>
                 </div>
-                <div style={{ marginTop: 4, opacity: 0.75, fontSize: 12 }}>
+                <div style={{ marginTop: 4, color: "var(--muted)", fontSize: 12 }}>
                   谈话指导记录：{item.careerRecords.length} 次
                   {item.careerRecords[0] ? ` (最近: ${item.careerRecords[0].date})` : " (尚未开展专题谈话)"}
                 </div>
               </div>
 
               <div>
-                <strong style={{ fontSize: 12, color: "#16a34a" }}>推荐投递企业及方向：</strong>
+                <strong style={{ fontSize: 12, color: "var(--success)" }}>推荐投递企业及方向：</strong>
                 <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
                   {item.recommendations.map((c, i) => (
                     <div key={i} style={{ fontSize: 12, display: "flex", justifyContent: "space-between" }}>
-                      <span><strong>{c.name}</strong> <small style={{ opacity: 0.75 }}>({c.roles})</small></span>
-                      <span style={{ opacity: 0.6 }}>{c.locations}</span>
+                      <span><strong>{c.name}</strong> <small style={{ color: "var(--muted)" }}>({c.roles})</small></span>
+                      <span style={{ color: "var(--muted)" }}>{c.locations}</span>
                     </div>
                   ))}
                 </div>
               </div>
-            </article>
+            </Card>
           );
         })}
       </div>

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { Button, Modal } from "./ui.jsx";
+import { Button, Card, Chip, Modal } from "./ui.jsx";
 
 export function parseGradeExcel(rows, headerIdx, mapping) {
   const dataRows = rows.slice(headerIdx + 1);
@@ -69,27 +69,34 @@ export function AcademicStudyView({ students, grades = [], onImportGrades, onSel
     <div className="academic-study-view">
       <h1>学风建设 · 成绩综合分析与学业帮扶</h1>
 
-      <div className="daily-summary" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 14 }}>
-        <section style={{ background: "var(--surface)", padding: 12, borderRadius: 8 }}>
-          <h2 style={{ fontSize: 13, opacity: 0.8 }}>已导入成绩记录</h2>
-          <strong style={{ fontSize: 24, color: "#2563eb" }}>{grades.length} 条</strong>
-        </section>
-        <section style={{ background: "var(--surface)", padding: 12, borderRadius: 8 }}>
-          <h2 style={{ fontSize: 13, opacity: 0.8 }}>学业预警 (挂科 $\ge 1$)</h2>
-          <strong style={{ fontSize: 24, color: totalFailed ? "#dc2626" : "#16a34a" }}>{totalFailed} 人</strong>
-        </section>
-        <section style={{ background: "var(--surface)", padding: 12, borderRadius: 8 }}>
-          <h2 style={{ fontSize: 13, opacity: 0.8 }}>挂科率</h2>
-          <strong style={{ fontSize: 24 }}>
+      <div className="summary-grid">
+        <Card className="summary-card">
+          <span className="summary-card__label">已导入成绩记录</span>
+          <strong className="summary-card__value" style={{ color: "var(--accent)" }}>
+            {grades.length} 条
+          </strong>
+        </Card>
+        <Card className="summary-card">
+          <span className="summary-card__label">学业预警 (挂科 ≥ 1 门)</span>
+          <strong
+            className="summary-card__value"
+            style={{ color: totalFailed ? "var(--danger)" : "var(--success)" }}
+          >
+            {totalFailed} 人
+          </strong>
+        </Card>
+        <Card className="summary-card">
+          <span className="summary-card__label">年级挂科率</span>
+          <strong className="summary-card__value">
             {students.length ? ((totalFailed / students.length) * 100).toFixed(1) : 0}%
           </strong>
-        </section>
+        </Card>
       </div>
 
-      <div className="toolbar" style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+      <div className="toolbar">
         <input
           aria-label="搜索姓名学号班级"
-          placeholder="搜索姓名、学号、班级…"
+          placeholder="搜索姓名、学号、班级"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
@@ -117,7 +124,7 @@ export function AcademicStudyView({ students, grades = [], onImportGrades, onSel
         </Button>
       </div>
 
-      <div className="table-scroll" style={{ marginTop: 14 }}>
+      <div className="table-scroll">
         <table>
           <thead>
             <tr>
@@ -158,18 +165,26 @@ export function AcademicStudyView({ students, grades = [], onImportGrades, onSel
                     )}
                   </td>
                   <td>
-                    <span
-                      className="care-badge"
-                      style={{
-                        background: item.warningLevel === "重度预警" ? "#fee2e2" : item.warningLevel === "轻度预警" ? "#fef3c7" : "#dcfce7",
-                        color: item.warningLevel === "重度预警" ? "#b91c1c" : item.warningLevel === "轻度预警" ? "#b45309" : "#15803d",
-                      }}
+                    <Chip
+                      color={
+                        item.warningLevel === "重度预警"
+                          ? "danger"
+                          : item.warningLevel === "轻度预警"
+                            ? "warning"
+                            : "success"
+                      }
                     >
                       {item.warningLevel}
-                    </span>
+                    </Chip>
                   </td>
                   <td>
-                    <Button onClick={(e) => { e.stopPropagation(); onSelectStudent(s); }}>
+                    <Button
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelectStudent(s);
+                      }}
+                    >
                       帮扶谈心
                     </Button>
                   </td>

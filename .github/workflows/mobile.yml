@@ -1,0 +1,32 @@
+name: Mobile interface preview
+on:
+  push:
+    paths: ['mobile/**', 'src/model.mjs', 'src/leave.mjs', 'src/leave-insights.mjs', 'src/remember-auth.mjs', 'src/school-client.mjs', 'tests/leave-insights.test.mjs', 'src/model-presets.mjs', '.github/workflows/mobile.yml']
+  pull_request:
+    paths: ['mobile/**', 'src/model.mjs', 'src/leave.mjs', 'src/leave-insights.mjs', 'src/remember-auth.mjs', 'src/school-client.mjs', 'tests/leave-insights.test.mjs', 'src/model-presets.mjs', '.github/workflows/mobile.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+      - run: node --test ../tests/leave.test.mjs
+      - run: npm run test:school
+      - run: npm run build
+      - run: npm run test:sites
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mobile-web-preview
+          path: mobile/dist/
+          if-no-files-found: error

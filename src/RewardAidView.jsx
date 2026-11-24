@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { Button } from "./ui.jsx";
+import { Button, Card, Chip } from "./ui.jsx";
 
 export function RewardAidView({ students, records, onSelectStudent, onAddRecord }) {
   const [filter, setFilter] = useState("all");
@@ -71,23 +71,23 @@ export function RewardAidView({ students, records, onSelectStudent, onAddRecord 
     <div className="reward-aid-view">
       <h1>奖惩助贷 · 学生综合资助与品行纪律看板</h1>
 
-      <div className="daily-summary" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 14 }}>
-        <section style={{ background: "var(--surface)", padding: 12, borderRadius: 8 }}>
-          <h2 style={{ fontSize: 13, opacity: 0.8 }}>获各类奖学金</h2>
-          <strong style={{ fontSize: 24, color: "#16a34a" }}>{stats.scholarshipCount} 人</strong>
-        </section>
-        <section style={{ background: "var(--surface)", padding: 12, borderRadius: 8 }}>
-          <h2 style={{ fontSize: 13, opacity: 0.8 }}>困难资助 / 助学贷款</h2>
-          <strong style={{ fontSize: 24, color: "#2563eb" }}>{stats.aidCount} 人</strong>
-        </section>
-        <section style={{ background: "var(--surface)", padding: 12, borderRadius: 8 }}>
-          <h2 style={{ fontSize: 13, opacity: 0.8 }}>违纪处分记录</h2>
-          <strong style={{ fontSize: 24, color: stats.disciplineCount ? "#dc2626" : "inherit" }}>{stats.disciplineCount} 人</strong>
-        </section>
-        <section style={{ background: "var(--surface)", padding: 12, borderRadius: 8 }}>
-          <h2 style={{ fontSize: 13, opacity: 0.8 }}>夜不归宿 / 晚归记录</h2>
-          <strong style={{ fontSize: 24, color: stats.lateBackCount ? "#d97706" : "inherit" }}>{stats.lateBackCount} 人</strong>
-        </section>
+      <div className="summary-grid" style={{ marginBottom: 14 }}>
+        <Card className="summary-card">
+          <span className="summary-card__label">获各类奖学金</span>
+          <strong className="summary-card__value" style={{ color: "var(--success)" }}>{stats.scholarshipCount} 人</strong>
+        </Card>
+        <Card className="summary-card">
+          <span className="summary-card__label">困难资助 / 助学贷款</span>
+          <strong className="summary-card__value" style={{ color: "var(--accent)" }}>{stats.aidCount} 人</strong>
+        </Card>
+        <Card className="summary-card">
+          <span className="summary-card__label">违纪处分记录</span>
+          <strong className="summary-card__value" style={{ color: stats.disciplineCount ? "var(--danger)" : "inherit" }}>{stats.disciplineCount} 人</strong>
+        </Card>
+        <Card className="summary-card">
+          <span className="summary-card__label">夜不归宿 / 晚归记录</span>
+          <strong className="summary-card__value" style={{ color: stats.lateBackCount ? "var(--warning)" : "inherit" }}>{stats.lateBackCount} 人</strong>
+        </Card>
       </div>
 
       <div className="toolbar" style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
@@ -148,48 +148,61 @@ export function RewardAidView({ students, records, onSelectStudent, onAddRecord 
                   </td>
                   <td>
                     {item.scholarships.length ? (
-                      item.scholarships.map((r) => (
-                        <span key={r.id} className="care-badge" style={{ background: "#dcfce7", color: "#15803d", marginRight: 4, display: "inline-block", marginBottom: 2 }}>
-                          {r.title}
-                        </span>
-                      ))
+                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                        {item.scholarships.map((r) => (
+                          <Chip key={r.id} color="success" variant="soft">
+                            {r.title}
+                          </Chip>
+                        ))}
+                      </div>
                     ) : (
-                      <span style={{ opacity: 0.4 }}>-</span>
+                      <span style={{ opacity: 0.45 }}>-</span>
                     )}
                   </td>
                   <td>
                     {item.aids.length ? (
-                      item.aids.map((r) => (
-                        <span key={r.id} className="care-badge" style={{ background: "#dbeafe", color: "#1d4ed8", marginRight: 4, display: "inline-block", marginBottom: 2 }}>
-                          {r.title}
-                        </span>
-                      ))
+                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                        {item.aids.map((r) => (
+                          <Chip key={r.id} color="accent" variant="soft">
+                            {r.title}
+                          </Chip>
+                        ))}
+                      </div>
                     ) : (
-                      <span style={{ opacity: 0.4 }}>-</span>
+                      <span style={{ opacity: 0.45 }}>-</span>
                     )}
                   </td>
                   <td>
                     {item.disciplines.length ? (
-                      item.disciplines.map((r) => (
-                        <span key={r.id} className="care-badge" style={{ background: "#fee2e2", color: "#b91c1c", marginRight: 4, display: "inline-block", marginBottom: 2 }}>
-                          {r.title}
-                        </span>
-                      ))
+                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                        {item.disciplines.map((r) => (
+                          <Chip key={r.id} color="danger" variant="dot">
+                            {r.title}
+                          </Chip>
+                        ))}
+                      </div>
                     ) : (
-                      <span style={{ color: "#16a34a" }}>无违纪</span>
+                      <Chip color="success" variant="soft">无违纪</Chip>
                     )}
                   </td>
                   <td>
                     {item.lateBacks.length ? (
-                      <span className="care-badge" style={{ background: "#fef3c7", color: "#b45309" }}>
+                      <Chip color="warning" variant="dot">
                         晚归 {item.lateBacks.length} 次
-                      </span>
+                      </Chip>
                     ) : (
-                      <span style={{ opacity: 0.4 }}>正常</span>
+                      <span style={{ opacity: 0.45 }}>正常</span>
                     )}
                   </td>
                   <td>
-                    <Button onClick={(e) => { e.stopPropagation(); onSelectStudent(s); }}>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelectStudent(s);
+                      }}
+                    >
                       详情
                     </Button>
                   </td>

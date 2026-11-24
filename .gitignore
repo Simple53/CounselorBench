@@ -15,6 +15,8 @@ output/vault-tests/
 *.scenc
 
 output/
+test-results/
+playwright-report/
 release/
 artifacts/
 __pycache__/

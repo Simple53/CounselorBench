@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { Button } from "./ui.jsx";
+import { Button, Card, Chip } from "./ui.jsx";
 import { StepperProgress, getPoliticalStep } from "./StepperProgress.jsx";
 
 export function PartyBuildingView({ students, records, onSelectStudent, onAddRecord }) {
@@ -72,52 +72,43 @@ export function PartyBuildingView({ students, records, onSelectStudent, onAddRec
         </Button>
       </div>
 
-      <div className="party-student-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))", gap: 14, marginTop: 14 }}>
+      <div className="advisor-grid">
         {filtered.map((s) => (
-          <article
+          <Card
             key={s.id}
-            className="widget"
-            style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12, cursor: "pointer" }}
+            style={{ padding: 16, gap: 12, cursor: "pointer" }}
             onClick={() => onSelectStudent(s)}
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
               <div>
                 <strong style={{ fontSize: 16 }}>{s.name}</strong>
-                <span style={{ marginLeft: 8, fontSize: 13, opacity: 0.8 }}>{s.number}</span>
-                <div style={{ fontSize: 12, opacity: 0.7, marginTop: 2 }}>{s.className} · {s.major}</div>
+                <span className="tabular" style={{ marginLeft: 8, fontSize: 13, color: "var(--muted)" }}>{s.number}</span>
+                <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>{s.className} · {s.major}</div>
               </div>
-              <span
-                className="care-badge"
-                style={{
-                  padding: "3px 8px",
-                  borderRadius: 6,
-                  fontSize: 12,
-                  fontWeight: 600,
-                  background: s.step === 5 ? "#dcfce7" : s.step >= 1 ? "#dbeafe" : "#f1f5f9",
-                  color: s.step === 5 ? "#15803d" : s.step >= 1 ? "#1d4ed8" : "#475569",
-                }}
+              <Chip
+                color={s.step === 5 ? "success" : s.step >= 1 ? "accent" : "default"}
               >
                 {s.political || "群众"}
-              </span>
+              </Chip>
             </div>
 
             <StepperProgress political={s.political} />
 
-            <div style={{ borderTop: "1px dashed var(--border, #e2e8f0)", paddingTop: 8, fontSize: 12 }}>
-              <span style={{ fontWeight: 600 }}>阶段记录 ({s.partyRecords.length} 条)：</span>
+            <div style={{ borderTop: "1px dashed var(--border)", paddingTop: 8, fontSize: 12 }}>
+              <span style={{ fontWeight: 500 }}>阶段记录 ({s.partyRecords.length} 条)：</span>
               {s.partyRecords.length ? (
                 <ul style={{ margin: "4px 0 0 16px", padding: 0 }}>
                   {s.partyRecords.slice(0, 2).map((r) => (
-                    <li key={r.id} style={{ opacity: 0.85 }}>
+                    <li key={r.id} style={{ color: "var(--muted)" }}>
                       [{r.date}] {r.title}
                     </li>
                   ))}
                 </ul>
               ) : (
-                <span style={{ opacity: 0.6, marginLeft: 6 }}>暂无详细考察材料记录</span>
+                <span style={{ color: "var(--muted)", marginLeft: 6 }}>暂无详细考察材料记录</span>
               )}
             </div>
-          </article>
+          </Card>
         ))}
       </div>
       {!filtered.length && <div className="empty">没有匹配的学生</div>}

@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { VaultStore, checkId } from "./vault.mjs";
 import { findAccount, registerAccount } from "./accounts.mjs";
+import { createNnuAdapter, nnuEntry } from "../mobile/bridge/nnu.mjs";
 const project = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
@@ -38,7 +39,11 @@ export async function startLocal({
   const store = new VaultStore(root),
     sessions = new Map(),
     csrf = randomBytes(32).toString("hex");
-  let vite;
+  let vite,
+    schoolContext = null,
+    schoolPage = null,
+    schoolOpening = false;
+  const schoolAdapter = createNnuAdapter(() => schoolPage);
   function json(res, value, status = 200) {
     res.writeHead(status, {
       "Content-Type": "application/json; charset=utf-8",
@@ -173,7 +178,7 @@ export async function startLocal({
           sessions.set(token, vault);
           res.setHeader(
             "Set-Cookie",
-            `sc_session=${token}; HttpOnly; SameSite=Strict; Path=/`,
+            `sc_session=${token}; Max-Age=2592000; HttpOnly; SameSite=Strict; Path=/`,
           );
         };
         if (
@@ -338,6 +343,88 @@ export async function startLocal({
           });
           return res.end(bytes);
         }
+        if (
+          req.method === "POST" &&
+          url.pathname === "/api/school/session"
+        ) {
+          if (schoolOpening) return json(res, { error: "校方会话正在建立" }, 409);
+          schoolOpening = true;
+          try {
+            if (!schoolContext) {
+              const { chromium } = await import("playwright");
+              schoolContext = await chromium.launchPersistentContext(
+                path.join(project, ".local-data", "school-browser"),
+                {
+                  channel: process.env.SC_SCHOOL_BROWSER || "msedge",
+                  headless: false,
+                },
+              );
+              schoolContext.on("close", () => {
+                schoolContext = null;
+                schoolPage = null;
+              });
+              schoolPage =
+                schoolContext.pages()[0] || (await schoolContext.newPage());
+              const response = await schoolPage.goto(
+                payload.entryUrl || nnuEntry,
+                {
+                  waitUntil: "domcontentloaded",
+                  timeout: 25000,
+                },
+              );
+              if (response && response.status() >= 400)
+                throw Error(
+                  `学校入口返回HTTP ${response.status()}，请先核实校方访问条件`,
+                );
+            }
+            const curHost = new URL(schoolPage.url()).hostname;
+            if (
+              curHost === "authserver.nnu.edu.cn" &&
+              payload.username &&
+              payload.password
+            ) {
+              const user = schoolPage.locator(
+                  'input[placeholder="请输入学号/工号"]',
+                ),
+                pass = schoolPage.locator('input[placeholder="请输入密码"]');
+              if ((await user.count()) && (await pass.count())) {
+                await user.fill(String(payload.username));
+                await pass.fill(String(payload.password));
+                await schoolPage.locator('a:text-is("登录")').click();
+                await schoolPage
+                  .waitForURL(
+                    (u) => u.hostname !== "authserver.nnu.edu.cn",
+                    { timeout: 20000 },
+                  )
+                  .catch(() => {});
+              }
+            }
+            const manualLoginRequired =
+              new URL(schoolPage.url()).hostname === "authserver.nnu.edu.cn";
+            return json(res, { opened: true, manualLoginRequired });
+          } finally {
+            schoolOpening = false;
+          }
+        }
+        if (
+          req.method === "GET" &&
+          url.pathname === "/api/school/leaves"
+        ) {
+          return json(res, await schoolAdapter.list());
+        }
+        const schoolActionMatch = /^\/api\/school\/leaves\/([^/]+)\/actions$/.exec(
+          url.pathname,
+        );
+        if (req.method === "POST" && schoolActionMatch) {
+          return json(
+            res,
+            await schoolAdapter.act(
+              decodeURIComponent(schoolActionMatch[1]),
+              payload.action,
+              payload.comment,
+            ),
+          );
+        }
         return json(res, { error: "接口不存在" }, 404);
       }
       if (vite) return vite.middlewares(req, res);
@@ -389,6 +476,7 @@ export async function startLocal({
   server.on("close", () => {
     for (const v of sessions.values()) v.key.fill(0);
     sessions.clear();
+    schoolContext?.close().catch(() => {});
     vite?.close();
   });
   console.log(

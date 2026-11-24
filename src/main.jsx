@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { LocalWorkspace } from "./LocalWorkspace.jsx";
 import "./styles.css";
 import "./density.css";
+import "./design-tokens.css";
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>

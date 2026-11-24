@@ -122,3 +122,26 @@ test("就业指导：根据专业与意向精准推荐企业", async () => {
   const civilRecs = getRecommendedCompanies("软件工程", "考公选调");
   assert.ok(civilRecs.some((c) => c.name.includes("公务员")));
 });
+test("宿舍视图按床号升序排列并支持导师视图聚合门下学生", async () => {
+  const { groupStudentsByDorm, groupStudentsByAdvisor } = await import(
+    "../src/model.mjs"
+  );
+  const sampleStudents = [
+    { id: "a", name: "丙同学", number: "03", className: "计科2501", dorm: "1栋101", bedNumber: 3, advisor: "张教授", major: "计算机科学与技术", status: "在校" },
+    { id: "b", name: "甲同学", number: "01", className: "计科2501", dorm: "1栋101", bedNumber: 1, advisor: "张教授", major: "计算机科学与技术", status: "请假离校" },
+    { id: "c", name: "乙同学", number: "02", className: "计科2501", dorm: "1栋101", bedNumber: 2, advisor: "李教授", major: "人工智能", status: "在校" },
+  ];
+  const rooms = groupStudentsByDorm(sampleStudents);
+  assert.deepEqual(
+    rooms[0].members.map((s) => s.bedNumber),
+    [1, 2, 3],
+  );
+  const advisors = groupStudentsByAdvisor(sampleStudents, [
+    { id: "l1", module: "请假销假", studentId: "b", status: "请假中" },
+  ]);
+  const zhang = advisors.find((g) => g.advisor === "张教授");
+  assert.ok(zhang);
+  assert.equal(zhang.members.length, 2);
+  assert.equal(zhang.leaveCount, 1);
+  assert.equal(zhang.presentCount, 1);
+});

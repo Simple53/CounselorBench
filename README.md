@@ -1,5 +1,7 @@
 # CounselorBench · 辅导员工作台
 
+手机交互界面位于 [mobile](mobile/README.md)，独立于桌面端：在本目录执行 `npm run mobile:dev`，访问 http://127.0.0.1:4176 。当前使用内存示例数据，尚未接入手机端持久化、加密存储或原生安装包。首页统计、服务方块、消息待办与个人设置已可交互。
+
 已接入本地用户与加密存储的开发版本：React、Vite、Tabler Icons、TanStack Table v8、Recharts、React Grid Layout、ExcelJS、JSZip。
 
 

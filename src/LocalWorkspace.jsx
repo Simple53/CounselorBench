@@ -2,6 +2,18 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { App } from "./App.jsx";
 import { Button } from "./ui.jsx";
 import { downloadBlob } from "./files.js";
+import {
+  saveRememberedAuth,
+  loadRememberedAuth,
+  clearRememberedAuth,
+  loadWebWorkspace,
+  saveWebWorkspace,
+  clearWebWorkspace,
+  WEB_AUTO_ENTER_KEY,
+} from "./remember-auth.mjs";
+
+const iconUrl = `${import.meta.env.BASE_URL}assets/workbench-icon.svg`;
+
 let csrf = "";
 let workspaceId = "";
 async function request(route, body, raw = false) {
@@ -25,6 +37,7 @@ async function request(route, body, raw = false) {
   }
   return raw ? response : response.json();
 }
+
 function hydrate(result) {
   return {
     ...result,
@@ -72,10 +85,15 @@ function hydrate(result) {
     },
   };
 }
+
 export function LocalWorkspace() {
   const [service, setService] = useState(null),
     [loaded, setLoaded] = useState(null),
-    [demo, setDemo] = useState(false),
+    [demo, setDemo] = useState(
+      () => new URLSearchParams(location.search).get("preview") === "demo",
+    ),
+    [webData, setWebData] = useState(() => loadWebWorkspace()),
+    [webResetSeq, setWebResetSeq] = useState(0),
     [mode, setMode] = useState("login"),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
@@ -88,8 +106,22 @@ export function LocalWorkspace() {
     bootSequence = useRef(0),
     running = useRef(null),
     timer = useRef(null),
+    webTimer = useRef(null),
     revision = useRef(0),
     stored = useRef(new Set());
+
+  function activate(result) {
+    clearTimeout(timer.current);
+    workspaceId = result.workspace.id;
+    revision.current = result.revision;
+    stored.current = new Set(
+      result.state.attachments.filter((a) => a.stored).map((a) => a.id),
+    );
+    pending.current = null;
+    setSaved("已保存");
+    setLoaded(hydrate(result));
+  }
+
   const boot = useCallback(async () => {
     const sequence = ++bootSequence.current;
     try {
@@ -106,36 +138,56 @@ export function LocalWorkspace() {
         const result = await request("load");
         if (sequence !== bootSequence.current) return;
         activate(result);
+        return;
       } catch {}
+      // 若服务重启导致会话过期，尝试使用本机加密记住的密码免密重新解锁
+      const remembered = await loadRememberedAuth();
+      if (sequence !== bootSequence.current) return;
+      if (remembered?.username && remembered?.password) {
+        setLoginName(remembered.username);
+        try {
+          const result = await request("login", {
+            username: remembered.username,
+            password: remembered.password,
+          });
+          if (sequence !== bootSequence.current) return;
+          activate(result);
+        } catch {
+          clearRememberedAuth();
+        }
+      }
     } catch {
       if (sequence !== bootSequence.current) return;
       setService({ unavailable: true });
+      // 纯静态网页预览版（如 GitHub Pages）免反复拦截，默认自动进入并持久保存浏览器本地进度
+      try {
+        if (localStorage.getItem(WEB_AUTO_ENTER_KEY) !== "0") {
+          setWebData(loadWebWorkspace());
+          setDemo(true);
+        }
+      } catch {
+        setDemo(true);
+      }
     }
   }, []);
+
   useEffect(() => {
     boot();
     return () => {
       bootSequence.current++;
       clearTimeout(timer.current);
+      clearTimeout(webTimer.current);
     };
   }, [boot]);
-  function activate(result) {
-    clearTimeout(timer.current);
-    workspaceId = result.workspace.id;
-    revision.current = result.revision;
-    stored.current = new Set(
-      result.state.attachments.filter((a) => a.stored).map((a) => a.id),
-    );
-    pending.current = null;
-    setSaved("已保存");
-    setLoaded(hydrate(result));
-  }
+
   async function submit(e) {
     e.preventDefault();
     bootSequence.current++;
     setBusy(true);
     setError("");
-    const data = Object.fromEntries(new FormData(e.currentTarget));
+    const form = new FormData(e.currentTarget);
+    const data = Object.fromEntries(form);
+    const remember = form.get("remember") === "on";
     try {
       if (mode !== "login" && data.password !== data.confirm)
         throw Error("两次密码不一致");
@@ -143,6 +195,14 @@ export function LocalWorkspace() {
         mode === "recover" ? "password-reset" : mode,
         data,
       );
+      if (remember && data.username && data.password) {
+        await saveRememberedAuth({
+          username: String(data.username),
+          password: String(data.password),
+        });
+      } else {
+        clearRememberedAuth();
+      }
       activate(result);
       if (result.recovery) {
         setRecovery(result.recovery);
@@ -154,6 +214,7 @@ export function LocalWorkspace() {
       setBusy(false);
     }
   }
+
   // ponytail: 单账套快照队列；大规模查询迁移到 SQLCipher，不在前端维护第二套数据库。
   async function flush() {
     clearTimeout(timer.current);
@@ -197,6 +258,7 @@ export function LocalWorkspace() {
       running.current = null;
     }
   }
+
   const changed = useCallback((snapshot) => {
     pending.current = snapshot;
     setSaved("待保存");
@@ -207,6 +269,14 @@ export function LocalWorkspace() {
       flush().catch(() => {});
     }, 450);
   }, []);
+
+  const webChanged = useCallback((snapshot) => {
+    clearTimeout(webTimer.current);
+    webTimer.current = setTimeout(() => {
+      saveWebWorkspace(snapshot);
+    }, 350);
+  }, []);
+
   useEffect(() => {
     const leave = (e) => {
       if (pending.current || running.current) {
@@ -217,11 +287,13 @@ export function LocalWorkspace() {
     window.addEventListener("beforeunload", leave);
     return () => window.removeEventListener("beforeunload", leave);
   }, []);
+
   async function lock() {
     setBusy(true);
     setError("");
     try {
       await flush();
+      clearRememberedAuth();
       await request("lock", {});
       workspaceId = "";
       setLoaded(null);
@@ -232,6 +304,7 @@ export function LocalWorkspace() {
       setBusy(false);
     }
   }
+
   async function backup() {
     setBusy(true);
     try {
@@ -248,6 +321,7 @@ export function LocalWorkspace() {
       setBusy(false);
     }
   }
+
   async function restoreBackup(e) {
     const file = e.target.files?.[0];
     e.target.value = "";
@@ -260,30 +334,58 @@ export function LocalWorkspace() {
       const data = await response.json();
       setMode("login");
       setLoginName(data.workspace.name || "");
-      setNotice(`已导入备份账套「${data.workspace.name}」，请输入密码解锁登录`);
+      setNotice(
+        `已导入备份账套「${data.workspace.name}」，请输入密码解锁登录`,
+      );
     } catch (err) {
       setError(err.message);
     } finally {
       setBusy(false);
     }
   }
+
   if (demo)
     return (
-      <>
-        <App />
-        <div className="local-controls">
-          <span>演示数据不保存</span>
-          <Button
-            onClick={() => {
-              setDemo(false);
-              boot();
-            }}
-          >
-            返回账套
-          </Button>
-        </div>
-      </>
+      <App
+        key={`web-preview-${webResetSeq}`}
+        initialData={webData}
+        onDataChange={webChanged}
+        onAccountLock={() => {
+          try {
+            localStorage.setItem(WEB_AUTO_ENTER_KEY, "0");
+          } catch {}
+          setDemo(false);
+        }}
+        workspaceControls={
+          <div className="workspace-controls">
+            <span className="demo-tag">网页预览 · 本地已自动保存</span>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                clearWebWorkspace();
+                setWebData(null);
+                setWebResetSeq((n) => n + 1);
+              }}
+            >
+              重置示例
+            </Button>
+            {!service?.unavailable && (
+              <Button
+                size="sm"
+                onClick={() => {
+                  setDemo(false);
+                  boot();
+                }}
+              >
+                返回账套
+              </Button>
+            )}
+          </div>
+        }
+      />
     );
+
   if (recovery)
     return (
       <main className="workspace-gate">
@@ -294,7 +396,7 @@ export function LocalWorkspace() {
             if (confirmed) setRecovery("");
           }}
         >
-          <img src="/assets/workbench-icon.svg" alt="工作台" />
+          <img src={iconUrl} alt="辅智通" />
           <h1>保存恢复密钥</h1>
           <pre className="recovery-key">{recovery}</pre>
           <Button
@@ -327,12 +429,15 @@ export function LocalWorkspace() {
         </form>
       </main>
     );
+
   if (loaded)
     return (
       <App
         key={loaded.workspace.id}
         initialData={loaded.state}
+        currentWorkspace={loaded.workspace}
         onDataChange={changed}
+        onAccountLock={lock}
         workspaceControls={
           <div className="workspace-controls">
             <span>{loaded.workspace.name}</span>
@@ -343,31 +448,46 @@ export function LocalWorkspace() {
               {saved}
             </span>
             {saved.includes("失败") && (
-              <Button onClick={() => flush().catch(() => {})}>重试保存</Button>
+              <Button size="sm" onClick={() => flush().catch(() => {})}>
+                重试保存
+              </Button>
             )}
-            <Button disabled={busy} onClick={backup}>
+            <Button size="sm" disabled={busy} onClick={backup}>
               加密备份
             </Button>
-            <Button disabled={busy} onClick={lock}>
+            <Button size="sm" disabled={busy} onClick={lock}>
               退出登录
             </Button>
           </div>
         }
       />
     );
+
   return (
     <main className="workspace-gate">
       <form className="gate-card" onSubmit={submit}>
-        <img src="/assets/workbench-icon.svg" alt="工作台" />
+        <img src={iconUrl} alt="辅智通" />
         <h1>辅智通 · 高校辅导员智慧管理系统</h1>
         {service === null ? (
           <p>正在连接本地服务…</p>
         ) : service.unavailable ? (
           <>
-            <p style={{ color: "#2563eb", fontWeight: 600 }}>Web 独立免后台测试模式已就绪</p>
-            <p style={{ fontSize: 13, opacity: 0.8 }}>未检测到本地 Node.js 服务。当前页面可直接作为纯前端单页应用进行完整功能测试与交互体验（数据保存在浏览器本地）。</p>
-            <Button primary type="button" onClick={() => setDemo(true)}>
-              免后台直接进入体验
+            <p className="chip chip--accent">Web 独立免后台测试模式已就绪</p>
+            <p style={{ fontSize: 13, color: "var(--muted)" }}>
+              未检测到本地 Node.js 服务。点击进入后数据将自动保存在浏览器本地。
+            </p>
+            <Button
+              primary
+              type="button"
+              onClick={() => {
+                try {
+                  localStorage.setItem(WEB_AUTO_ENTER_KEY, "1");
+                } catch {}
+                setWebData(loadWebWorkspace());
+                setDemo(true);
+              }}
+            >
+              进入工作台
             </Button>
           </>
         ) : (
@@ -428,6 +548,10 @@ export function LocalWorkspace() {
                 />
               </label>
             )}
+            <label className="gate-check">
+              <input type="checkbox" name="remember" defaultChecked />
+              记住密码，下次直接进入工作台
+            </label>
             {notice && <p role="status">{notice}</p>}
             {error && (
               <p className="save-error" role="alert">
@@ -448,6 +572,8 @@ export function LocalWorkspace() {
                 <>
                   <Button
                     type="button"
+                    variant="tertiary"
+                    size="sm"
                     disabled={busy}
                     onClick={() => {
                       setMode("register");
@@ -458,6 +584,8 @@ export function LocalWorkspace() {
                   </Button>
                   <Button
                     type="button"
+                    variant="tertiary"
+                    size="sm"
                     disabled={busy}
                     onClick={() => {
                       setMode("recover");
@@ -480,6 +608,8 @@ export function LocalWorkspace() {
               ) : (
                 <Button
                   type="button"
+                  variant="tertiary"
+                  size="sm"
                   disabled={busy}
                   onClick={() => {
                     setMode("login");
@@ -492,6 +622,7 @@ export function LocalWorkspace() {
             </div>
             <Button
               type="button"
+              variant="ghost"
               className="demo-entry"
               disabled={busy}
               onClick={() => setDemo(true)}
