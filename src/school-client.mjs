@@ -258,5 +258,138 @@ export function createSchoolClient(
     openSession(credentials = {}) {
       return request("/session/open", { method: "POST", body: credentials });
     },
+    importRecords(records = []) {
+      return request("/import", { method: "POST", body: { records } });
+    },
   };
+}
+
+/**
+ * 解析外部已登录浏览器通过 JSON、书签脚本或 Ctrl+A/Ctrl+C 复制的南师大请销假数据。
+ */
+export function parseExternalNnuLeaves(input) {
+  let rawRows = null;
+  if (Array.isArray(input)) {
+    rawRows = input;
+  } else if (input && typeof input === "object") {
+    rawRows =
+      input.records ||
+      input.rows ||
+      input.datas?.query?.rows ||
+      input.datas?.rows ||
+      null;
+  } else {
+    const text = String(input || "").trim();
+    if (!text) throw Error("请先从外部已登录的南师大请销假页面复制内容或粘贴数据");
+    if (text.startsWith("{") || text.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(text);
+        return parseExternalNnuLeaves(parsed);
+      } catch {}
+    }
+    const lines = text
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+    const results = [];
+    for (let i = 0; i < lines.length; i += 1) {
+      const line = lines[i];
+      if (/^(序号|学号|姓名|学院|请假|操作)/.test(line) && !/\d{8,}/.test(line)) {
+        continue;
+      }
+      const cols = line.split(/\t+|\s{2,}/).map((s) => s.trim()).filter(Boolean);
+      const stuNumMatch = line.match(/\b\d{8,14}\b/);
+      const timeMatches =
+        line.match(/\d{4}[-/]\d{1,2}[-/]\d{1,2}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?/g) || [];
+      if (!stuNumMatch && timeMatches.length < 1 && cols.length < 3) continue;
+      const nameCandidate =
+        cols.find((c) => /^[\u4e00-\u9fa5]{2,5}$/.test(c) && !/待销假|已销假|请假中|待审批|事假|病假|公假/.test(c)) ||
+        "";
+      if (!nameCandidate && !stuNumMatch) continue;
+      const status = /已销假/.test(line)
+        ? "已销假"
+        : /待审批/.test(line)
+          ? "待审批"
+          : /已驳回/.test(line)
+            ? "已驳回"
+            : /请假中/.test(line)
+              ? "请假中"
+              : "待销假";
+      const leaveType = /病假/.test(line)
+        ? "病假"
+        : /公假/.test(line)
+          ? "公假"
+          : /事假/.test(line)
+            ? "事假"
+            : "";
+      const summary =
+        cols.find(
+          (c) =>
+            c.length >= 4 &&
+            c !== nameCandidate &&
+            !c.includes(stuNumMatch?.[0] || "___") &&
+            !/^\d{4}[-/]/.test(c) &&
+            !/^(待销假|已销假|请假中|待审批|事假|病假|公假|同意|销假|详情)$/.test(c),
+        ) || line.slice(0, 60);
+      const idBase = `${stuNumMatch?.[0] || nameCandidate}-${timeMatches[0] || i}`;
+      const record = {
+        id: `school:ext-${idBase}`,
+        externalId: `ext-${idBase}`,
+        studentId: `school:${stuNumMatch?.[0] || nameCandidate || i}`,
+        studentName: nameCandidate || stuNumMatch?.[0] || "校方学生",
+        studentNumber: stuNumMatch?.[0] || "",
+        module: "请假销假",
+        source: "school",
+        status,
+        leaveState: status,
+        startAt: (timeMatches[0] || "").replace(/\//g, "-").replace(" ", "T").slice(0, 16),
+        endAt: (timeMatches[1] || timeMatches[0] || "").replace(/\//g, "-").replace(" ", "T").slice(0, 16),
+        summary,
+        title: summary,
+        destination: "",
+        attachments: [],
+      };
+      if (leaveType) record.leaveType = leaveType;
+      record.reasonCategory = classifyLeaveReason(record);
+      results.push(record);
+    }
+    if (!results.length) {
+      throw Error("未能从文本中识别出请销假表格行，请确保在南师大请销假页面按 Ctrl+A、Ctrl+C 全选复制");
+    }
+    return results;
+  }
+  if (!Array.isArray(rawRows)) {
+    throw Error("校方数据格式无效，缺少 records 或 rows 数组");
+  }
+  const nnuCfg = schoolPresets.nnu;
+  return rawRows.map((r, idx) => {
+    if (r.WID || r.USER_ID || r.USER_NAME) {
+      return normalizeSchoolRecord(
+        {
+          id: r.WID || r.id || `ext-${idx}`,
+          studentId: r.USER_ID || r.XSBH || `u-${idx}`,
+          studentName: r.USER_NAME || r.studentName || "",
+          studentNumber: r.XSBH || r.studentNumber || "",
+          status: String(r.FLOWSTATUS) === "1" ? "待销假" : r.status || "校方状态未知",
+          startAt: r.LEAVE_TIME || r.startAt || "",
+          endAt: r.RETURN_TIME || r.endAt || "",
+          summary: r.REASON || r.summary || "",
+          destination: r.OUT_PLACE || r.DESTINATION || r.destination || "",
+          leaveType: r.LEAVE_TYPE || r.leaveType || "",
+          advisor: r.TUTOR_NAME || r.advisor || "",
+          attachments: Array.isArray(r.ATTACHMENTS) ? r.ATTACHMENTS : [],
+        },
+        nnuCfg,
+      );
+    }
+    return normalizeSchoolRecord(r, nnuCfg);
+  });
+}
+
+/**
+ * 生成可在外部已登录浏览器书签栏点击执行的一键回传脚本。
+ */
+export function buildNnuBookmarklet(targetOrigin = "https://simple53.github.io") {
+  const code = `(()=>{try{var $=window.$,t=$&&$("#emapdatatable"),rows=[];if(t&&t.length){rows=t.data("jqxGrid")?t.jqxGrid("getrows"):t.data("jqxDataTable")?t.jqxDataTable("getRows"):t.emapdatatable?t.emapdatatable("tableRows"):[]}if(!rows||!rows.length){rows=Array.from(document.querySelectorAll("table tbody tr")).map(function(tr,i){var cs=Array.from(tr.querySelectorAll("td")).map(function(td){return td.innerText.trim()}).filter(Boolean);return{WID:"dom-"+i,USER_ID:cs[0]||("u-"+i),USER_NAME:cs.find(function(c){return /^[\\u4e00-\\u9fa5]{2,5}$/.test(c)})||cs[0]||"",XSBH:(cs.join(" ").match(/\\b\\d{8,14}\\b/)||[""])[0],FLOWSTATUS:/已销假/.test(cs.join(" "))?"9":"1",REASON:cs.join(" ").slice(0,80)}})}var payload=JSON.stringify({type:"SC_NNU_SYNC",records:rows});if(window.opener){window.opener.postMessage({type:"SC_NNU_SYNC",records:rows},${JSON.stringify(targetOrigin)});window.opener.postMessage({type:"SC_NNU_SYNC",records:rows},"*")}if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(payload).catch(function(){})}fetch("http://127.0.0.1:4175/bootstrap").then(function(r){return r.json()}).then(function(b){return fetch("http://127.0.0.1:4175/import",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+b.token},body:payload})}).catch(function(){});alert("已提取 "+rows.length+" 条请销假记录并回传给辅智通（同时已复制到剪贴板）。")}catch(e){alert("提取失败："+e.message)}})();`;
+  return "javascript:" + encodeURIComponent(code);
 }

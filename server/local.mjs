@@ -351,47 +351,88 @@ export async function startLocal({
           schoolOpening = true;
           try {
             if (!schoolContext) {
-              const { chromium } = await import("playwright");
-              const rawProxy = String(payload.proxyUrl || "").trim();
-              let proxy;
-              if (rawProxy) {
-                let u;
-                try {
-                  u = new URL(rawProxy);
-                } catch {
-                  return json(res, { error: "校园网代理地址格式不正确" }, 400);
+              const { chromium } = await import("playwright").catch(() =>
+                import("../mobile/node_modules/playwright/index.mjs"),
+              );
+              const cdpUrl = String(payload.cdpUrl || "").trim();
+              if (cdpUrl) {
+                const browser = await chromium.connectOverCDP(cdpUrl);
+                schoolContext = browser.contexts()[0];
+                if (!schoolContext) throw Error("外部浏览器未找到可用上下文");
+                schoolPage =
+                  schoolContext.pages().find((p) => {
+                    try {
+                      return new URL(p.url()).hostname.endsWith("nnu.edu.cn");
+                    } catch {
+                      return false;
+                    }
+                  }) ||
+                  schoolContext.pages()[0] ||
+                  (await schoolContext.newPage());
+                if (!schoolPage.url().includes("lwNjnuStuLeaveManagement")) {
+                  await schoolPage
+                    .goto(payload.entryUrl || nnuEntry, {
+                      waitUntil: "domcontentloaded",
+                      timeout: 25000,
+                    })
+                    .catch(() => {});
                 }
-                if (!["http:", "https:", "socks5:"].includes(u.protocol))
-                  return json(res, { error: "校园网代理仅支持 http/https/socks5" }, 400);
-                proxy = { server: u.origin };
-              }
-              schoolContext = await chromium.launchPersistentContext(
-                path.join(project, ".local-data", "school-browser"),
-                {
-                  channel: process.env.SC_SCHOOL_BROWSER || "msedge",
-                  headless: false,
-                  ...(proxy ? { proxy } : {}),
-                },
-              );
-              schoolContext.on("close", () => {
-                schoolContext = null;
-                schoolPage = null;
-              });
-              schoolPage =
-                schoolContext.pages()[0] || (await schoolContext.newPage());
-              const response = await schoolPage.goto(
-                payload.entryUrl || nnuEntry,
-                {
-                  waitUntil: "domcontentloaded",
-                  timeout: 25000,
-                },
-              );
-              if (response && response.status() >= 400)
-                throw Error(
-                  `学校入口返回HTTP ${response.status()}，请先核实校方访问条件`,
+              } else {
+                const rawProxy = String(payload.proxyUrl || "").trim();
+                let proxy;
+                if (rawProxy) {
+                  let u;
+                  try {
+                    u = new URL(rawProxy);
+                  } catch {
+                    return json(res, { error: "校园网代理地址格式不正确" }, 400);
+                  }
+                  if (!["http:", "https:", "socks5:"].includes(u.protocol))
+                    return json(res, { error: "校园网代理仅支持 http/https/socks5" }, 400);
+                  proxy = { server: u.origin };
+                }
+                schoolContext = await chromium.launchPersistentContext(
+                  path.join(project, ".local-data", "school-browser"),
+                  {
+                    channel: process.env.SC_SCHOOL_BROWSER || "msedge",
+                    headless: false,
+                    ...(proxy ? { proxy } : {}),
+                  },
                 );
+                schoolContext.on("close", () => {
+                  schoolContext = null;
+                  schoolPage = null;
+                });
+                schoolPage =
+                  schoolContext.pages()[0] || (await schoolContext.newPage());
+                const response = await schoolPage.goto(
+                  payload.entryUrl || nnuEntry,
+                  {
+                    waitUntil: "domcontentloaded",
+                    timeout: 25000,
+                  },
+                );
+                if (response && response.status() >= 400)
+                  throw Error(
+                    `学校入口返回HTTP ${response.status()}，请先核实校方访问条件`,
+                  );
+              }
             }
-            const curHost = new URL(schoolPage.url()).hostname;
+            const activeNnu = schoolContext.pages().find((p) => {
+              try {
+                return new URL(p.url()).hostname.endsWith("nnu.edu.cn");
+              } catch {
+                return false;
+              }
+            });
+            if (activeNnu) schoolPage = activeNnu;
+            const curHost = (() => {
+              try {
+                return new URL(schoolPage.url()).hostname;
+              } catch {
+                return "";
+              }
+            })();
             if (
               curHost === "authserver.nnu.edu.cn" &&
               payload.username &&
@@ -413,12 +454,25 @@ export async function startLocal({
                   .catch(() => {});
               }
             }
-            const manualLoginRequired =
-              new URL(schoolPage.url()).hostname === "authserver.nnu.edu.cn";
+            const manualLoginRequired = (() => {
+              try {
+                return new URL(schoolPage.url()).hostname === "authserver.nnu.edu.cn";
+              } catch {
+                return false;
+              }
+            })();
+            if (manualLoginRequired && typeof schoolPage.bringToFront === "function") {
+              await schoolPage.bringToFront().catch(() => {});
+            }
             return json(res, { opened: true, manualLoginRequired });
           } finally {
             schoolOpening = false;
           }
+        }
+        if (req.method === "POST" && url.pathname === "/api/school/import") {
+          const rows = Array.isArray(payload.records) ? payload.records : [];
+          schoolAdapter.setImported(rows);
+          return json(res, { imported: rows.length });
         }
         if (
           req.method === "GET" &&

@@ -54,7 +54,11 @@ import { AcademicStudyView } from "./AcademicStudyView.jsx";
 import { CareerGuidanceView } from "./CareerGuidanceView.jsx";
 import { AccountManagementView } from "./AccountManagementView.jsx";
 import { BatchPhotoImportModal } from "./BatchPhotoImportModal.jsx";
-import { createSchoolClient, schoolPresets } from "./school-client.mjs";
+import {
+  createSchoolClient,
+  schoolPresets,
+  parseExternalNnuLeaves,
+} from "./school-client.mjs";
 import {
   saveRememberedSchoolAuth,
   loadRememberedSchoolAuth,
@@ -450,8 +454,51 @@ export function App({
   }
   const prefsRef = useRef(prefs),
     seenSchool = useRef(null),
-    bootedSchool = useRef(false);
+    bootedSchool = useRef(false),
+    loginPollTimer = useRef(null);
   prefsRef.current = prefs;
+  function bindSchoolStudents(list) {
+    return list.map((r) => ({
+      ...r,
+      studentId:
+        students.find(
+          (s) =>
+            s.name === r.studentName ||
+            (r.studentNumber && s.number === r.studentNumber),
+        )?.id || r.studentId,
+    }));
+  }
+  const importExternalSchoolLeaves = useCallback(
+    (input) => {
+      const parsed = bindSchoolStudents(parseExternalNnuLeaves(input));
+      setSchoolMeta((m) => ({
+        ...m,
+        records: parsed,
+        syncedAt: new Date().toISOString(),
+        syncError: "",
+        busy: false,
+      }));
+      announceNew(parsed);
+      notify(`已从外部浏览器同步 ${parsed.length} 条校方请销假记录`);
+      return parsed.length;
+    },
+    [students],
+  );
+  useEffect(() => {
+    function onWindowMessage(e) {
+      if (!e?.data || e.data.type !== "SC_NNU_SYNC") return;
+      try {
+        importExternalSchoolLeaves(e.data.records || []);
+      } catch (err) {
+        notify(err.message);
+      }
+    }
+    window.addEventListener("message", onWindowMessage);
+    return () => {
+      window.removeEventListener("message", onWindowMessage);
+      clearInterval(loginPollTimer.current);
+    };
+  }, [importExternalSchoolLeaves]);
   // 心跳抓取到新记录时：应用内提示 + 桌面通知（设置中可关闭）。首次抓取只建立基线。
   function announceNew(parsed) {
     const prev = seenSchool.current;
@@ -479,9 +526,54 @@ export function App({
         autoSync: false,
       };
       setSchoolMeta((m) => ({ ...m, busy: true, syncError: "" }));
+      const startLoginWatch = (fetchListFn) => {
+        clearInterval(loginPollTimer.current);
+        let tries = 0;
+        loginPollTimer.current = setInterval(async () => {
+          tries += 1;
+          if (tries > 45) {
+            clearInterval(loginPollTimer.current);
+            return;
+          }
+          try {
+            const parsed = await fetchListFn();
+            clearInterval(loginPollTimer.current);
+            setSchoolMeta((m) => ({
+              ...m,
+              records: parsed,
+              syncedAt: new Date().toISOString(),
+              syncError: "",
+              busy: false,
+              autoSync: Boolean(cfg.autoSync),
+            }));
+            announceNew(parsed);
+            notify(`检测到外部浏览器已完成登录，已自动同步 ${parsed.length} 条校方请销假记录`);
+          } catch {}
+        }, 4000);
+      };
       try {
         // 1. 若有同源本地服务，优先尝试 /api/school/*
         if (typeof window !== "undefined" && window.__SC_CSRF) {
+          const fetchLocalList = async () => {
+            const lr = await fetch("/api/school/leaves", {
+              headers: {
+                "X-SC-CSRF": window.__SC_CSRF,
+                "X-SC-Workspace": currentWorkspace?.id || "",
+              },
+            });
+            const ld = await lr.json().catch(() => ({}));
+            if (!lr.ok) throw Error(ld.error || "抓取校方请销假列表失败");
+            return bindSchoolStudents(
+              (ld.records || []).map((r) => ({
+                ...r,
+                id: `school:${r.id}`,
+                externalId: String(r.id),
+                studentId: `school:${r.studentId}`,
+                module: "请假销假",
+                source: "school",
+              })),
+            );
+          };
           if (establishSession) {
             const sr = await fetch("/api/school/session", {
               method: "POST",
@@ -494,39 +586,23 @@ export function App({
                 username: cfg.username || "",
                 password: cfg.password || "",
                 proxyUrl: cfg.proxyUrl || "",
+                cdpUrl: cfg.cdpUrl || "",
               }),
             });
             const sd = await sr.json().catch(() => ({}));
             if (!sr.ok) throw Error(sd.error || "建立本地校方会话失败");
             if (sd.manualLoginRequired) {
-              notify("已在浏览器打开校方登录页，请在弹出的窗口完成登录或验证码后点“立即同步”");
+              setSchoolMeta((m) => ({
+                ...m,
+                busy: false,
+                syncError: "已打开南师大登录窗口，请在窗口中完成登录，系统将每 4 秒自动检测并同步。",
+              }));
+              notify("请在弹出的学校浏览器窗口完成登录，完成后将自动抓取");
+              startLoginWatch(fetchLocalList);
+              return;
             }
           }
-          const lr = await fetch("/api/school/leaves", {
-            headers: {
-              "X-SC-CSRF": window.__SC_CSRF,
-              "X-SC-Workspace": currentWorkspace?.id || "",
-            },
-          });
-          const ld = await lr.json().catch(() => ({}));
-          if (!lr.ok) throw Error(ld.error || "抓取校方请销假列表失败");
-          const client = createSchoolClient(
-            { ...schoolPresets.nnu, baseUrl: window.location.origin },
-            "",
-          );
-          const parsed = (ld.records || []).map((r) => ({
-            ...r,
-            id: `school:${r.id}`,
-            externalId: String(r.id),
-            studentId:
-              students.find(
-                (s) =>
-                  s.name === r.studentName ||
-                  (r.studentNumber && s.number === r.studentNumber),
-              )?.id || `school:${r.studentId}`,
-            module: "请假销假",
-            source: "school",
-          }));
+          const parsed = await fetchLocalList();
           setSchoolMeta((m) => ({
             ...m,
             records: parsed,
@@ -541,32 +617,50 @@ export function App({
         }
         // 2. 网页预览版：连接本机 Playwright 连接器 (默认 http://127.0.0.1:4175)
         const baseUrl = cfg.baseUrl || schoolPresets.nnu.baseUrl;
-        let tok = cfg.token || "";
-        if (!tok) {
+        const getFreshToken = async (forceRefresh = false) => {
+          if (!forceRefresh && cfg.token) return cfg.token;
           const br = await fetch(new URL("/bootstrap", baseUrl)).catch(() => null);
-          if (br?.ok) tok = (await br.json()).token || "";
-        }
-        const api = createSchoolClient({ ...schoolPresets.nnu, baseUrl }, tok);
+          return br?.ok ? (await br.json()).token || "" : "";
+        };
+        let tok = await getFreshToken(false);
+        const makeApi = (t) => createSchoolClient({ ...schoolPresets.nnu, baseUrl }, t);
+        const runWithAutoToken = async (fn) => {
+          try {
+            return await fn(makeApi(tok));
+          } catch (err) {
+            if (String(err.message || "").includes("失效") || String(err.message || "").includes("401")) {
+              tok = await getFreshToken(true);
+              if (tok) return fn(makeApi(tok));
+            }
+            throw err;
+          }
+        };
         if (establishSession) {
-          const res = await api.openSession({
-            username: cfg.username || "",
-            password: cfg.password || "",
-            proxyUrl: cfg.proxyUrl || "",
-          });
+          const res = await runWithAutoToken((api) =>
+            api.openSession({
+              username: cfg.username || "",
+              password: cfg.password || "",
+              proxyUrl: cfg.proxyUrl || "",
+              cdpUrl: cfg.cdpUrl || "",
+            }),
+          );
           if (res?.manualLoginRequired) {
-            notify("请在弹出的学校浏览器窗口完成验证码/登录后再同步");
+            setSchoolMeta((m) => ({
+              ...m,
+              busy: false,
+              syncError: "已打开南师大登录窗口，请在窗口中完成登录，系统将每 4 秒自动检测并同步。",
+            }));
+            notify("请在弹出的学校浏览器窗口完成登录，完成后将自动抓取");
+            startLoginWatch(async () => {
+              const r = await runWithAutoToken((api) => api.list());
+              return bindSchoolStudents(r.records);
+            });
+            return;
           }
         }
-        const result = await api.list();
-        const mapped = result.records.map((r) => ({
-          ...r,
-          studentId:
-            students.find(
-              (s) =>
-                s.name === r.studentName ||
-                (r.studentNumber && s.number === r.studentNumber),
-            )?.id || r.studentId,
-        }));
+        const result = await runWithAutoToken((api) => api.list());
+        const mapped = bindSchoolStudents(result.records);
+        clearInterval(loginPollTimer.current);
         setSchoolMeta((m) => ({
           ...m,
           records: mapped,
@@ -580,7 +674,7 @@ export function App({
       } catch (err) {
         const msg =
           err.message === "Failed to fetch"
-            ? "未连接校方本机连接器（127.0.0.1:4175）或尚未打开学校浏览器会话"
+            ? "未连接本机连接器（127.0.0.1:4175）。您也可以在已登录的外部浏览器页面按 Ctrl+A 全选复制后，点击“从剪贴板导入”直接同步。"
             : err.message;
         setSchoolMeta((m) => ({ ...m, busy: false, syncError: msg, autoSync: false }));
         if (!quiet) notify(msg);
@@ -1347,6 +1441,7 @@ export function App({
                   schoolRecords={schoolMeta.records}
                   schoolMeta={{ ...schoolMeta, autoSync: !!prefs.schoolEnabled }}
                   onSyncSchool={() => syncSchoolLeaves(null, true)}
+                  onImportExternal={importExternalSchoolLeaves}
                   onOpenSchoolSettings={() => settings("学校接入")}
                   onSelectStudent={(sid) => {
                     const target = students.find(
@@ -2284,6 +2379,7 @@ export function App({
           await syncSchoolLeaves(creds, true);
         }}
         onSyncSchool={() => syncSchoolLeaves(schoolCreds, false)}
+        onImportExternal={importExternalSchoolLeaves}
       />
       {photoStudent && (
         <Photos

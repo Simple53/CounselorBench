@@ -51,6 +51,7 @@ export function SettingsDrawer({
   );
   const [schoolToken, setSchoolToken] = useState(schoolCreds?.token || "");
   const [schoolProxyUrl, setSchoolProxyUrl] = useState(schoolCreds?.proxyUrl || "");
+  const [schoolCdpUrl, setSchoolCdpUrl] = useState(schoolCreds?.cdpUrl || "");
   const [schoolAutoSync, setSchoolAutoSync] = useState(
     schoolCreds?.autoSync !== false,
   );
@@ -63,6 +64,7 @@ export function SettingsDrawer({
     if (schoolCreds.baseUrl) setSchoolBaseUrl(schoolCreds.baseUrl);
     if (schoolCreds.token) setSchoolToken(schoolCreds.token);
     if (schoolCreds.proxyUrl !== undefined) setSchoolProxyUrl(schoolCreds.proxyUrl || "");
+    if (schoolCreds.cdpUrl !== undefined) setSchoolCdpUrl(schoolCreds.cdpUrl || "");
   }, [schoolCreds]);
 
   if (!open) return null;
@@ -190,6 +192,7 @@ export function SettingsDrawer({
                   baseUrl: schoolBaseUrl.trim() || schoolPresets.nnu.baseUrl,
                   token: schoolToken.trim(),
                   proxyUrl: schoolProxyUrl.trim(),
+                  cdpUrl: schoolCdpUrl.trim(),
                   autoSync: schoolAutoSync,
                   remember: rememberSchool,
                 });
@@ -240,6 +243,15 @@ export function SettingsDrawer({
                   placeholder="如 http://127.0.0.1:1080 或 socks5://127.0.0.1:1080"
                   value={schoolProxyUrl}
                   onChange={(e) => setSchoolProxyUrl(e.target.value)}
+                />
+              </label>
+              <label>
+                外部浏览器远程调试地址（选填，接管已手动打开的 Edge/Chrome）
+                <input
+                  aria-label="外部浏览器调试地址"
+                  placeholder="如 http://127.0.0.1:9222"
+                  value={schoolCdpUrl}
+                  onChange={(e) => setSchoolCdpUrl(e.target.value)}
                 />
               </label>
               <label style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>

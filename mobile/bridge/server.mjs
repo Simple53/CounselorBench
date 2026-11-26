@@ -100,67 +100,115 @@ const server = http.createServer(async (req, res) => {
       try {
         if (!context) {
           const { chromium } = await import("playwright");
-          const proxy = parseProxy(login.proxyUrl);
-          context = await chromium.launchPersistentContext(
-            path.resolve(
-              path.dirname(fileURLToPath(import.meta.url)),
-              "../../.local-data/school-browser",
-            ),
-            {
-              channel: process.env.SC_SCHOOL_BROWSER || "msedge",
-              headless: false,
-              ...(proxy ? { proxy } : {}),
-            },
-          );
-          context.on("close", () => {
-            context = null;
-            page = null;
-          });
-          page = context.pages()[0] || (await context.newPage());
-          const response = await page.goto(nnuEntry, {
-            waitUntil: "domcontentloaded",
-            timeout: 25000,
-          });
-          if (response && response.status() >= 400)
-            throw Error(
-              `学校入口返回HTTP ${response.status()}，请先核实校方访问条件`,
+          const cdpUrl = String(login.cdpUrl || "").trim();
+          if (cdpUrl) {
+            const browser = await chromium.connectOverCDP(cdpUrl);
+            context = browser.contexts()[0];
+            if (!context) throw Error("外部浏览器未找到可用上下文");
+            const existing = context.pages().find((p) => {
+              try {
+                return new URL(p.url()).hostname.endsWith("nnu.edu.cn");
+              } catch {
+                return false;
+              }
+            });
+            page = existing || context.pages()[0] || (await context.newPage());
+            if (!page.url().includes("lwNjnuStuLeaveManagement")) {
+              await page.goto(nnuEntry, { waitUntil: "domcontentloaded", timeout: 25000 }).catch(() => {});
+            }
+          } else {
+            const proxy = parseProxy(login.proxyUrl);
+            context = await chromium.launchPersistentContext(
+              path.resolve(
+                path.dirname(fileURLToPath(import.meta.url)),
+                "../../.local-data/school-browser",
+              ),
+              {
+                channel: process.env.SC_SCHOOL_BROWSER || "msedge",
+                headless: false,
+                ...(proxy ? { proxy } : {}),
+              },
             );
+            context.on("close", () => {
+              context = null;
+              page = null;
+            });
+            page = context.pages()[0] || (await context.newPage());
+            const response = await page.goto(nnuEntry, {
+              waitUntil: "domcontentloaded",
+              timeout: 25000,
+            });
+            if (response && response.status() >= 400)
+              throw Error(
+                `学校入口返回HTTP ${response.status()}，请先核实校方访问条件`,
+              );
+          }
         }
+        // 查找已跳转到校方请假页的活动标签页
+        const pages = context.pages();
+        const activeNnu = pages.find((p) => {
+          try {
+            return new URL(p.url()).hostname.endsWith("nnu.edu.cn");
+          } catch {
+            return false;
+          }
+        });
+        if (activeNnu) page = activeNnu;
+        const curHost = (() => {
+          try {
+            return new URL(page.url()).hostname;
+          } catch {
+            return "";
+          }
+        })();
+        if (curHost && !curHost.endsWith("nnu.edu.cn") && curHost !== "blank") {
+          await page.goto(nnuEntry, { waitUntil: "domcontentloaded", timeout: 20000 }).catch(() => {});
+        }
+        const refreshedHost = (() => {
+          try {
+            return new URL(page.url()).hostname;
+          } catch {
+            return "";
+          }
+        })();
         if (
-          !["ehallapp.nnu.edu.cn", "authserver.nnu.edu.cn"].includes(
-            new URL(page.url()).hostname,
-          )
-        )
-          throw Error("学校页面尚未就绪，请关闭学校窗口后重新建立会话");
-        if (
-          new URL(page.url()).hostname === "authserver.nnu.edu.cn" &&
+          refreshedHost === "authserver.nnu.edu.cn" &&
           login.username &&
           login.password
         ) {
           const user = page.locator('input[placeholder="请输入学号/工号"]'),
             pass = page.locator('input[placeholder="请输入密码"]');
-          if (!(await user.count()) || !(await pass.count()))
-            return send({ error: "需要人工完成验证码或学校认证" }, 409);
-          await user.fill(String(login.username));
-          await pass.fill(String(login.password));
-          await page.locator('a:text-is("登录")').click();
-          await page
-            .waitForURL((u) => u.hostname !== "authserver.nnu.edu.cn", {
-              timeout: 20000,
-            })
-            .catch(() => {});
+          if ((await user.count()) && (await pass.count())) {
+            await user.fill(String(login.username));
+            await pass.fill(String(login.password));
+            await page.locator('a:text-is("登录")').click();
+            await page
+              .waitForURL((u) => u.hostname !== "authserver.nnu.edu.cn", {
+                timeout: 20000,
+              })
+              .catch(() => {});
+          }
         }
-        const manualLoginRequired =
-          new URL(page.url()).hostname === "authserver.nnu.edu.cn";
-        if (manualLoginRequired && login.username)
-          return send(
-            { error: "登录尚未完成，请检查账号密码或手动完成验证码" },
-            409,
-          );
+        const manualLoginRequired = (() => {
+          try {
+            return new URL(page.url()).hostname === "authserver.nnu.edu.cn";
+          } catch {
+            return false;
+          }
+        })();
+        if (manualLoginRequired && typeof page.bringToFront === "function") {
+          await page.bringToFront().catch(() => {});
+        }
         return send({ opened: true, manualLoginRequired });
       } finally {
         opening = false;
       }
+    }
+    if (req.method === "POST" && url.pathname === "/import") {
+      const data = await body(req);
+      const rows = Array.isArray(data.records) ? data.records : [];
+      adapter.setImported(rows);
+      return send({ imported: rows.length });
     }
     if (req.method === "GET" && url.pathname === "/leaves")
       return send(await adapter.list());

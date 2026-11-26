@@ -81,6 +81,7 @@ import {
   createSchoolClient,
   schoolPresets,
   schoolStudents,
+  parseExternalNnuLeaves,
 } from "./school-client.mjs";
 const icons: Record<string, any> = {
   学生信息: IconUser,
@@ -340,13 +341,35 @@ export default function Prototype() {
       if (running || document.hidden) return;
       running = true;
       try {
-        const api = createSchoolClient(schoolConfig, schoolToken);
-        if (initial && schoolConfig.preset === "nnu")
-          await api.openSession({
+        let api = createSchoolClient(schoolConfig, schoolToken);
+        if (initial && schoolConfig.preset === "nnu") {
+          const openRes = await api.openSession({
             ...credentials.current,
             proxyUrl: schoolConfig.proxyUrl || "",
           });
-        const result = await api.list();
+          if (openRes?.manualLoginRequired) {
+            notify("请在弹出的学校浏览器完成登录，完成后自动同步");
+            return;
+          }
+        }
+        let result;
+        try {
+          result = await api.list();
+        } catch (err: any) {
+          if (String(err?.message || "").includes("失效")) {
+            const br = await fetch(new URL("/bootstrap", schoolConfig.baseUrl)).catch(() => null);
+            if (br?.ok) {
+              const freshTok = (await br.json()).token || "";
+              setSchoolToken(freshTok);
+              api = createSchoolClient(schoolConfig, freshTok);
+              result = await api.list();
+            } else {
+              throw err;
+            }
+          } else {
+            throw err;
+          }
+        }
         if (!stopped) {
           const prevIds = seenSchoolIds.current;
           seenSchoolIds.current = new Set(result.records.map((r: Row) => r.id));
@@ -1453,6 +1476,28 @@ export default function Prototype() {
                       }
                     >
                       {schoolBusy ? "同步中…" : "实时抓取同步"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const text = await navigator.clipboard?.readText?.();
+                          if (!text?.trim()) throw Error("剪贴板为空，请先在南师大页面全选复制");
+                          const recs = parseExternalNnuLeaves(text);
+                          setSchool((s: any) => ({
+                            ...s,
+                            records: recs,
+                            syncedAt: new Date().toISOString(),
+                            syncError: "",
+                          }));
+                          setLeaveSource("school");
+                          notify(`已从剪贴板导入 ${recs.length} 条校方记录`);
+                        } catch (err: any) {
+                          notify(err?.message || "读取剪贴板失败");
+                        }
+                      }}
+                    >
+                      剪贴板导入
                     </button>
                   </div>
                   {leaveSummary.advisorGroups.length > 0 && (

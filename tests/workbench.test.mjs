@@ -116,3 +116,41 @@ test("请假种子自带证明材料路径且南师大附件映射兼容空与�
   assert.equal(withAtt.attachments.length, 1);
   assert.equal(withAtt.attachments[0].name, "病历.pdf");
 });
+
+test("外部已登录浏览器文本与 EMAP JSON 解析及同步书签生成", async () => {
+  const { parseExternalNnuLeaves, buildNnuBookmarklet } = await import(
+    "../src/school-client.mjs"
+  );
+  const fromJson = parseExternalNnuLeaves(
+    JSON.stringify({
+      rows: [
+        {
+          WID: "ext-1",
+          USER_ID: "2026010101",
+          USER_NAME: "张同学",
+          FLOWSTATUS: "1",
+          LEAVE_TIME: "2026-11-26 08:00:00",
+          RETURN_TIME: "2026-11-26 18:00:00",
+          REASON: "校医院复诊",
+        },
+      ],
+    }),
+  );
+  assert.equal(fromJson.length, 1);
+  assert.equal(fromJson[0].studentName, "张同学");
+  assert.equal(fromJson[0].status, "待销假");
+
+  const copiedText = [
+    "序号\t学号\t姓名\t开始时间\t结束时间\t请假事由\t状态",
+    "1\t2026010102\t李同学\t2026-11-26 09:00\t2026-11-27 18:00\t前往上海参加学术会议\t待销假",
+  ].join("\n");
+  const fromText = parseExternalNnuLeaves(copiedText);
+  assert.equal(fromText.length, 1);
+  assert.equal(fromText[0].studentNumber, "2026010102");
+  assert.equal(fromText[0].studentName, "李同学");
+  assert.equal(fromText[0].reasonCategory, "学术会议");
+
+  const bm = buildNnuBookmarklet("https://simple53.github.io");
+  assert.ok(bm.startsWith("javascript:"));
+  assert.ok(decodeURIComponent(bm).includes("SC_NNU_SYNC"));
+});

@@ -198,6 +198,7 @@ export async function saveRememberedSchoolAuth(creds = {}) {
     password: String(creds.password || ""),
     token: String(creds.token || ""),
     proxyUrl: String(creds.proxyUrl || ""),
+    cdpUrl: String(creds.cdpUrl || ""),
     autoSync: creds.autoSync !== false,
   };
   await saveEncryptedPayload(SCHOOL_AUTH_KEY, clean);

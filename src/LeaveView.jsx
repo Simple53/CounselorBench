@@ -9,7 +9,7 @@ import {
   leaveDurationHours,
 } from "./leave.mjs";
 import { leaveInsights } from "./leave-insights.mjs";
-import { nnuLeaveReviewUrl } from "./school-client.mjs";
+import { nnuLeaveReviewUrl, buildNnuBookmarklet } from "./school-client.mjs";
 
 export const leaveFields = [
   ["studentName", "学生"],
@@ -51,6 +51,7 @@ export function LeaveView({
   schoolRecords = [],
   schoolMeta = {},
   onSyncSchool,
+  onImportExternal,
   onOpenSchoolSettings,
   onSelectStudent,
   onAdd,
@@ -62,6 +63,16 @@ export function LeaveView({
   const [categoryFilter, setCategoryFilter] = useState("全部");
   const [statusFilter, setStatusFilter] = useState("全部");
   const [query, setQuery] = useState("");
+  const [showExtImport, setShowExtImport] = useState(false);
+  const [extText, setExtText] = useState("");
+  const [extMsg, setExtMsg] = useState("");
+  const bookmarkletHref = useMemo(
+    () =>
+      typeof window !== "undefined"
+        ? buildNnuBookmarklet(window.location.origin)
+        : buildNnuBookmarklet(),
+    [],
+  );
 
   const studentMap = useMemo(
     () => new Map(students.map((s) => [s.id, s])),
@@ -172,10 +183,29 @@ export function LeaveView({
           <Button size="sm" onClick={onOpenSchoolSettings}>
             配置校方账户
           </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={async () => {
+              if (navigator.clipboard?.readText) {
+                try {
+                  const text = await navigator.clipboard.readText();
+                  if (text.trim()) {
+                    const count = onImportExternal?.(text);
+                    setExtMsg(`已从剪贴板导入 ${count} 条校方记录`);
+                    return;
+                  }
+                } catch {}
+              }
+              setShowExtImport((v) => !v);
+            }}
+          >
+            从外部浏览器导入
+          </Button>
           <a
             href={nnuLeaveReviewUrl}
             target="_blank"
-            rel="noopener noreferrer"
+            rel="noopener"
             className="button button--outline button--sm"
             style={{ textDecoration: "none" }}
           >
@@ -183,6 +213,77 @@ export function LeaveView({
           </a>
         </div>
       </Card>
+
+      {showExtImport && (
+        <Card style={{ marginBottom: 12 }}>
+          <Card.Header>
+            <div>
+              <Card.Title>外部已登录浏览器快速同步（无需重启浏览器）</Card.Title>
+              <Card.Description>
+                方式 A：点击上方“打开南师大请销假页 ↗”登录后，将下方按钮拖到浏览器书签栏并在校方页面点击，即可自动回传；方式 B：在已登录的南师大请销假页按 Ctrl+A 全选、Ctrl+C 复制，再粘贴到下方导入。
+              </Card.Description>
+            </div>
+            <Button size="sm" variant="tertiary" onClick={() => setShowExtImport(false)}>
+              收起
+            </Button>
+          </Card.Header>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <a
+              href={bookmarkletHref}
+              className="button button--secondary button--sm"
+              style={{ textDecoration: "none" }}
+              onClick={(e) => {
+                e.preventDefault();
+                navigator.clipboard?.writeText(bookmarkletHref).catch(() => {});
+                setExtMsg("请将此按钮拖到浏览器书签栏（或已复制脚本，在校方页面新建书签粘贴网址）");
+              }}
+            >
+              拖到书签栏：同步南师大请销假
+            </a>
+            <Button
+              size="sm"
+              onClick={async () => {
+                try {
+                  const t = await navigator.clipboard.readText();
+                  setExtText(t);
+                  const count = onImportExternal?.(t);
+                  setExtMsg(`已成功读取剪贴板并同步 ${count} 条记录`);
+                } catch (err) {
+                  setExtMsg(err.message || "读取剪贴板失败，请手动粘贴到下方文本框");
+                }
+              }}
+            >
+              读取剪贴板并导入
+            </Button>
+          </div>
+          <textarea
+            aria-label="粘贴外部浏览器请假页面内容"
+            rows={4}
+            placeholder="在南师大请销假列表页面 Ctrl+A、Ctrl+C 复制后粘贴到这里（支持表格文本或 EMAP JSON）"
+            value={extText}
+            onChange={(e) => setExtText(e.target.value)}
+            style={{ width: "100%", fontSize: 12 }}
+          />
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <Button
+              size="sm"
+              primary
+              onClick={() => {
+                try {
+                  const count = onImportExternal?.(extText);
+                  setExtMsg(`已识别并同步 ${count} 条记录`);
+                  setShowExtImport(false);
+                } catch (err) {
+                  setExtMsg(err.message);
+                }
+              }}
+            >
+              解析并导入列表
+            </Button>
+            {extMsg && <span style={{ fontSize: 12, color: "var(--muted)" }}>{extMsg}</span>}
+          </div>
+        </Card>
+      )}
 
       {/* 2. 同导师科研项目多人出差智能识别 */}
       {insights.advisorGroups.length > 0 && (

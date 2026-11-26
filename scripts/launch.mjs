@@ -55,6 +55,15 @@ if (running) {
   }
   try {
     await startLocal();
+    // 同步检测并后台启动 4175 校方连接器，方便网页预览与桌面端直接抓取校方请销假
+    fetch("http://127.0.0.1:4175/bootstrap", { signal: AbortSignal.timeout(800) }).catch(() => {
+      spawn(process.execPath, [path.join(project, "mobile/bridge/server.mjs")], {
+        cwd: project,
+        windowsHide: true,
+        detached: true,
+        stdio: "ignore",
+      }).unref();
+    });
     show();
   } catch (e) {
     console.error(
