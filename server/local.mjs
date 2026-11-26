@@ -352,11 +352,25 @@ export async function startLocal({
           try {
             if (!schoolContext) {
               const { chromium } = await import("playwright");
+              const rawProxy = String(payload.proxyUrl || "").trim();
+              let proxy;
+              if (rawProxy) {
+                let u;
+                try {
+                  u = new URL(rawProxy);
+                } catch {
+                  return json(res, { error: "校园网代理地址格式不正确" }, 400);
+                }
+                if (!["http:", "https:", "socks5:"].includes(u.protocol))
+                  return json(res, { error: "校园网代理仅支持 http/https/socks5" }, 400);
+                proxy = { server: u.origin };
+              }
               schoolContext = await chromium.launchPersistentContext(
                 path.join(project, ".local-data", "school-browser"),
                 {
                   channel: process.env.SC_SCHOOL_BROWSER || "msedge",
                   headless: false,
+                  ...(proxy ? { proxy } : {}),
                 },
               );
               schoolContext.on("close", () => {
@@ -424,6 +438,26 @@ export async function startLocal({
               payload.comment,
             ),
           );
+        }
+        const schoolAttMatch = /^\/api\/school\/leaves\/([^/]+)\/attachments\/([^/]+)$/.exec(
+          url.pathname,
+        );
+        if (req.method === "GET" && schoolAttMatch) {
+          try {
+            const file = await schoolAdapter.attachment(
+              decodeURIComponent(schoolAttMatch[1]),
+              decodeURIComponent(schoolAttMatch[2]),
+            );
+            res.writeHead(200, {
+              "Content-Type": file.mime,
+              "Cache-Control": "no-store",
+              "X-Content-Type-Options": "nosniff",
+              "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(file.name)}`,
+            });
+            return res.end(file.bytes);
+          } catch (err) {
+            return json(res, { error: err.message }, err.status || 502);
+          }
         }
         return json(res, { error: "接口不存在" }, 404);
       }

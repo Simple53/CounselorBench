@@ -66,12 +66,13 @@ import {
   dailyReport,
   today,
   localDate,
+  escapeHTML,
 } from "./work.mjs";
 import { Button, Modal } from "./ui.jsx";
 import { DataTable } from "./DataTable.jsx";
 import { Home, defaultWidgets, moduleWidgets } from "./Home.jsx";
 import { Assistant } from "./Assistant.jsx";
-import { exportPackage } from "./files.js";
+import { exportPackage, openPreview } from "./files.js";
 import { SearchSelect } from "./SearchSelect.jsx";
 import { Psychology } from "./Psychology.jsx";
 import { modelPresets } from "./model-presets.mjs";
@@ -149,18 +150,46 @@ function readPrefs() {
     return defaults;
   }
 }
+// 为演示请假证明生成可预览且可按分类打包的 SVG 凭证。
+function buildSeedSvg(record, fileName) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="760" height="440" viewBox="0 0 760 440">
+  <rect width="760" height="440" rx="16" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2"/>
+  <rect x="24" y="24" width="712" height="64" rx="10" fill="#1d4ed8"/>
+  <text x="44" y="64" font-family="system-ui,sans-serif" font-size="22" font-weight="600" fill="#ffffff">${escapeHTML(fileName)}</text>
+  <text x="44" y="132" font-family="system-ui,sans-serif" font-size="18" font-weight="600" fill="#0f172a">事项：${escapeHTML(record.title || record.module)}</text>
+  <text x="44" y="170" font-family="system-ui,sans-serif" font-size="15" fill="#334155">分类：${escapeHTML(record.reasonCategory || record.module)}   状态：${escapeHTML(record.status || "已登记")}</text>
+  <text x="44" y="206" font-family="system-ui,sans-serif" font-size="15" fill="#334155">时间：${escapeHTML((record.startAt || record.date || "").replace("T", " "))}${record.endAt ? " 至 " + escapeHTML(record.endAt.replace("T", " ")) : ""}</text>
+  <text x="44" y="242" font-family="system-ui,sans-serif" font-size="15" fill="#334155">去向：${escapeHTML(record.destination || "校内")}</text>
+  <rect x="44" y="272" width="672" height="108" rx="8" fill="#ffffff" stroke="#e2e8f0"/>
+  <text x="60" y="308" font-family="system-ui,sans-serif" font-size="14" fill="#475569">${escapeHTML(String(record.summary || "").slice(0, 64))}</text>
+  <text x="60" y="346" font-family="system-ui,sans-serif" font-size="12" fill="#64748b">说明：此为演示凭证样本，支持直接内嵌预览与按事由分类打包导出。</text>
+</svg>`;
+  const url = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+  const bytes = new TextEncoder().encode(svg);
+  const file =
+    typeof File !== "undefined"
+      ? new File([bytes], fileName, { type: "image/svg+xml" })
+      : { name: fileName, size: bytes.length, type: "image/svg+xml", arrayBuffer: async () => bytes.buffer };
+  return { size: bytes.length, type: "image/svg+xml", file, url };
+}
+
 // 演示种子只在演示模式加载；本地账套由存储层注入，路径附件不自动读取磁盘。
 const seedAttachments = initialRecords
   .filter((r) => !r.sensitive)
   .flatMap((r) =>
-    r.paths.map((path, i) => ({
-      id: `seed-${r.id}-${i}`,
-      name: path.split("/").pop(),
-      path,
-      size: null,
-      file: null,
-      url: null,
-    })),
+    r.paths.map((path, i) => {
+      const name = path.split("/").pop();
+      const previewable = path.endsWith(".svg") ? buildSeedSvg(r, name) : null;
+      return {
+        id: `seed-${r.id}-${i}`,
+        name,
+        path,
+        size: previewable?.size ?? null,
+        type: previewable?.type ?? "",
+        file: previewable?.file ?? null,
+        url: previewable?.url ?? null,
+      };
+    }),
   );
 const seedRecords = initialRecords.map((r) => ({
   ...r,
@@ -222,11 +251,27 @@ export function App({
   const [students, setStudents] = useState(
       initialData?.students ?? initialStudents,
     ),
-    [records, setRecords] = useState(initialData?.records ?? seedRecords),
+    [records, setRecords] = useState(() => {
+      if (!initialData?.records) return seedRecords;
+      return initialData.records.map((r) => {
+        if (String(r.id).startsWith("leave-seed-") && (!r.attachmentIds || !r.attachmentIds.length)) {
+          const seed = seedRecords.find((s) => s.id === r.id);
+          return seed ? { ...r, attachmentIds: seed.attachmentIds } : r;
+        }
+        return r;
+      });
+    }),
     [tasks, setTasks] = useState(initialData?.tasks ?? initialTasks),
-    [attachments, setAttachments] = useState(
-      initialData?.attachments ?? seedAttachments,
-    ),
+    [attachments, setAttachments] = useState(() => {
+      const base = initialData?.attachments ?? seedAttachments;
+      const byId = new Map(base.map((a) => [a.id, a]));
+      for (const sa of seedAttachments) {
+        const cur = byId.get(sa.id);
+        if (!cur) byId.set(sa.id, sa);
+        else if (!cur.url && sa.url) byId.set(sa.id, { ...cur, ...sa });
+      }
+      return [...byId.values()];
+    }),
     [grades, setGrades] = useState(initialData?.grades ?? []),
     [logs, setLogs] = useState(initialData?.logs ?? []);
   const [photoStudent, setPhotoStudent] = useState("");
@@ -448,6 +493,7 @@ export function App({
               body: JSON.stringify({
                 username: cfg.username || "",
                 password: cfg.password || "",
+                proxyUrl: cfg.proxyUrl || "",
               }),
             });
             const sd = await sr.json().catch(() => ({}));
@@ -505,6 +551,7 @@ export function App({
           const res = await api.openSession({
             username: cfg.username || "",
             password: cfg.password || "",
+            proxyUrl: cfg.proxyUrl || "",
           });
           if (res?.manualLoginRequired) {
             notify("请在弹出的学校浏览器窗口完成验证码/登录后再同步");
@@ -711,6 +758,59 @@ export function App({
     setTasks((s) =>
       s.map((t) => (t.id === task.id ? { ...t, important: !t.important } : t)),
     );
+  }
+  const [schoolAttPreview, setSchoolAttPreview] = useState(null);
+  function closePreviewSpec() {
+    if (schoolAttPreview?.url) URL.revokeObjectURL(schoolAttPreview.url);
+    setSchoolAttPreview(null);
+    setPreviewSpec(null);
+  }
+  async function previewSchoolAttachment(row, att) {
+    try {
+      const ext = row.externalId || String(row.id).replace(/^school:/, "");
+      let blob;
+      if (typeof window !== "undefined" && window.__SC_CSRF) {
+        const r = await fetch(
+          `/api/school/leaves/${encodeURIComponent(ext)}/attachments/${encodeURIComponent(att.id)}`,
+          {
+            headers: {
+              "X-SC-CSRF": window.__SC_CSRF,
+              "X-SC-Workspace": currentWorkspace?.id || "",
+            },
+          },
+        );
+        if (!r.ok) {
+          const d = await r.json().catch(() => ({}));
+          throw Error(d.error || "校方附件接口未返回文件");
+        }
+        blob = await r.blob();
+      } else {
+        const baseUrl = schoolCreds?.baseUrl || schoolPresets.nnu.baseUrl;
+        let tok = schoolCreds?.token || "";
+        if (!tok) {
+          const br = await fetch(new URL("/bootstrap", baseUrl)).catch(() => null);
+          if (br?.ok) tok = (await br.json()).token || "";
+        }
+        blob = await createSchoolClient({ ...schoolPresets.nnu, baseUrl }, tok).attachment(ext, att.id);
+      }
+      const head = new Uint8Array(await blob.slice(0, 8).arrayBuffer());
+      const safeMime =
+        head[0] === 0x89 && head[1] === 0x50
+          ? "image/png"
+          : head[0] === 0xff && head[1] === 0xd8
+            ? "image/jpeg"
+            : head[0] === 0x25 && head[1] === 0x50 && head[2] === 0x44 && head[3] === 0x46
+              ? "application/pdf"
+              : "application/octet-stream";
+      if (schoolAttPreview?.url) URL.revokeObjectURL(schoolAttPreview.url);
+      setSchoolAttPreview({
+        name: att.name,
+        mime: safeMime,
+        url: URL.createObjectURL(new Blob([blob], { type: safeMime })),
+      });
+    } catch (e) {
+      notify(e.message === "Failed to fetch" ? "未连接校方本机连接器" : e.message);
+    }
   }
   const [leaveAct, setLeaveAct] = useState(null);
   function openSchoolAction(row, action) {
@@ -2260,7 +2360,7 @@ export function App({
         <Modal
           title={previewSpec.row.title || previewSpec.row.name || "记录预览"}
           wide
-          onClose={() => setPreviewSpec(null)}
+          onClose={closePreviewSpec}
         >
           <dl className="record-preview">
             {previewSpec.fields.map((f) => (
@@ -2270,23 +2370,131 @@ export function App({
               </React.Fragment>
             ))}
           </dl>
-          <h3>附件</h3>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+            <h3 style={{ margin: 0 }}>附件预览</h3>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <Button
+                size="sm"
+                onClick={() =>
+                  openPreview(previewSpec.row, previewSpec.fields, attachments)
+                }
+              >
+                新窗口打开
+              </Button>
+              {previewSpec.row.source !== "school" && (
+                <label className="file-button">
+                  上传补充附件
+                  <input
+                    type="file"
+                    aria-label="上传补充附件"
+                    multiple
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files || []);
+                      if (!files.length) return;
+                      const added = registerFiles(files);
+                      const addedIds = added.map((a) => a.id);
+                      setAttachments((prev) => [...prev, ...added]);
+                      setRecords((prev) =>
+                        prev.map((r) =>
+                          r.id === previewSpec.row.id
+                            ? {
+                                ...r,
+                                attachmentIds: [
+                                  ...(r.attachmentIds || []),
+                                  ...addedIds,
+                                ],
+                              }
+                            : r,
+                        ),
+                      );
+                      setPreviewSpec((spec) =>
+                        spec
+                          ? {
+                              ...spec,
+                              row: {
+                                ...spec.row,
+                                attachmentIds: [
+                                  ...(spec.row.attachmentIds || []),
+                                  ...addedIds,
+                                ],
+                              },
+                            }
+                          : null,
+                      );
+                      log("补充记录附件", `${previewSpec.row.title || previewSpec.row.studentName || ""} · ${added.length} 个`, previewSpec.row.module || page);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+              )}
+            </div>
+          </div>
+          {!(previewSpec.row.attachmentIds || []).length &&
+            !(previewSpec.row.attachments || []).length && (
+              <p style={{ fontSize: 13, color: "var(--muted)" }}>暂无附件，可点击右上角“上传补充附件”。</p>
+            )}
           {(previewSpec.row.attachmentIds || []).map((id) => {
             const a = attachments.find((v) => v.id === id);
+            if (!a) return null;
+            const ext = String(a.name || "").split(".").pop().toLowerCase();
+            const isImg =
+              String(a.type || "").startsWith("image/") ||
+              ["svg", "png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(ext);
+            const isPdf = a.type === "application/pdf" || ext === "pdf";
             return (
-              a && (
-                <div key={id}>
+              <div key={id} style={{ marginTop: 10, padding: 10, border: "1px solid var(--border)", borderRadius: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                  <strong>{a.name}</strong>
                   {a.url ? (
                     <a href={a.url} download={a.name}>
-                      {a.name}
+                      下载
                     </a>
                   ) : (
-                    <span>{a.name}（仅路径）</span>
+                    <span style={{ fontSize: 12, color: "var(--muted)" }}>仅路径（需桌面服务读取）</span>
                   )}
                 </div>
-              )
+                {a.url && isImg && (
+                  <img
+                    src={a.url}
+                    alt={a.name}
+                    style={{ display: "block", maxWidth: "100%", maxHeight: 360, marginTop: 8, borderRadius: 6 }}
+                  />
+                )}
+                {a.url && isPdf && (
+                  <iframe
+                    title={a.name}
+                    src={a.url}
+                    style={{ width: "100%", height: 380, border: "1px solid var(--border)", marginTop: 8, borderRadius: 6 }}
+                  />
+                )}
+              </div>
             );
           })}
+          {previewSpec.row.source === "school" &&
+            (previewSpec.row.attachments || []).map((att) => (
+              <div key={att.id} style={{ marginTop: 10, padding: 10, border: "1px solid var(--border)", borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                <span>{att.name}</span>
+                <Button size="sm" onClick={() => previewSchoolAttachment(previewSpec.row, att)}>
+                  拉取预览
+                </Button>
+              </div>
+            ))}
+          {schoolAttPreview && (
+            <div style={{ marginTop: 12, padding: 10, border: "1px solid var(--border)", borderRadius: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <strong>{schoolAttPreview.name}</strong>
+                <a href={schoolAttPreview.url} download={schoolAttPreview.name}>
+                  下载校方附件
+                </a>
+              </div>
+              {schoolAttPreview.mime.startsWith("image/") && (
+                <img src={schoolAttPreview.url} alt={schoolAttPreview.name} style={{ maxWidth: "100%", marginTop: 8 }} />
+              )}
+              {schoolAttPreview.mime === "application/pdf" && (
+                <iframe title={schoolAttPreview.name} src={schoolAttPreview.url} style={{ width: "100%", height: 380, marginTop: 8, border: "1px solid var(--border)" }} />
+              )}
+            </div>
+          )}
         </Modal>
       )}
       {toast && (

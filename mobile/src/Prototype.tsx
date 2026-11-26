@@ -74,6 +74,9 @@ import { DormPanel } from "./DormPanel";
 import { LeaveDashboard } from "./LeaveDashboard";
 import { SchoolLinks } from "./SchoolLinks";
 import { SchoolConnection, SchoolRecordTools } from "./SchoolConnection";
+import { MobileWebBook } from "./MobileWebBook";
+import { MobileTaskBoard } from "./MobileTaskBoard";
+import { seedWebbook } from "../../src/webbook.mjs";
 import {
   createSchoolClient,
   schoolPresets,
@@ -156,7 +159,34 @@ export default function Prototype() {
       "major",
     ]);
   const [autoSync, setAutoSync] = useState(false);
+  const [webbook, setWebbook] = useState<Record<string, any[]>>(() => {
+    try {
+      const raw = localStorage.getItem("sc-mobile-webbook-v1");
+      return raw ? { ...seedWebbook(), ...JSON.parse(raw) } : seedWebbook();
+    } catch {
+      return seedWebbook();
+    }
+  });
+  const [bookmarks, setBookmarks] = useState<Row[]>(() => {
+    try {
+      const raw = localStorage.getItem("sc-mobile-bookmarks-v1");
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("sc-mobile-webbook-v1", JSON.stringify(webbook));
+    } catch {}
+  }, [webbook]);
+  useEffect(() => {
+    try {
+      localStorage.setItem("sc-mobile-bookmarks-v1", JSON.stringify(bookmarks));
+    } catch {}
+  }, [bookmarks]);
   const credentials = useRef({ username: "", password: "" });
+  const seenSchoolIds = useRef<Set<string> | null>(null);
   const [view, setView] = useState("list"),
     [leaveSource, setLeaveSource] = useState("local"),
     [leaveScope, setLeaveScope] = useState("all"),
@@ -193,6 +223,7 @@ export default function Prototype() {
         ...prev,
         ...(saved.baseUrl ? { baseUrl: saved.baseUrl } : {}),
         ...(saved.preset ? { preset: saved.preset } : {}),
+        ...(saved.proxyUrl ? { proxyUrl: saved.proxyUrl } : {}),
         autoSync: saved.autoSync !== false,
       }));
       if (saved.token) setSchoolToken(saved.token);
@@ -311,9 +342,31 @@ export default function Prototype() {
       try {
         const api = createSchoolClient(schoolConfig, schoolToken);
         if (initial && schoolConfig.preset === "nnu")
-          await api.openSession(credentials.current);
+          await api.openSession({
+            ...credentials.current,
+            proxyUrl: schoolConfig.proxyUrl || "",
+          });
         const result = await api.list();
         if (!stopped) {
+          const prevIds = seenSchoolIds.current;
+          seenSchoolIds.current = new Set(result.records.map((r: Row) => r.id));
+          if (prevIds) {
+            const fresh = result.records.filter((r: Row) => !prevIds.has(r.id));
+            if (fresh.length) {
+              const msg = `校方新增 ${fresh.length} 条请销假：${fresh
+                .slice(0, 2)
+                .map((r: Row) => r.studentName || "学生")
+                .join("、")}`;
+              notify(msg);
+              if (
+                schoolConfig.schoolNotify !== false &&
+                typeof Notification !== "undefined" &&
+                Notification.permission === "granted"
+              ) {
+                new Notification("辅智通 · 校方请销假", { body: msg });
+              }
+            }
+          }
           setSchool(result);
           setLeaveSource("school");
         }
@@ -328,7 +381,8 @@ export default function Prototype() {
       }
     }
     sync(true);
-    const timer = setInterval(() => sync(), 60000);
+    const intervalMs = Math.max(30, Number(schoolConfig.schoolInterval) || 60) * 1000;
+    const timer = setInterval(() => sync(), intervalMs);
     return () => {
       stopped = true;
       clearInterval(timer);
@@ -880,77 +934,24 @@ export default function Prototype() {
                   }}
                 />
               ) : inbox === "tasks" ? (
-                <>
-                  <div className="sc-toolbar">
-                    <div>
-                      {[
-                        ["pending", "未完成"],
-                        ["done", "已完成"],
-                        ["all", "全部"],
-                      ].map(([k, v]) => (
-                        <button
-                          key={k}
-                          className={taskFilter === k ? "active" : ""}
-                          onClick={() => setTaskFilter(k)}
-                        >
-                          {v}
-                        </button>
-                      ))}
-                    </div>
-                    <button
-                      aria-label="新增待办"
-                      onClick={() => go("task:new")}
-                    >
-                      <IconPlus size={22} />
-                    </button>
-                  </div>
-                  <div className="sc-list">
-                    {tasks
-                      .filter(
-                        (t) =>
-                          taskFilter === "all" ||
-                          t.done === (taskFilter === "done"),
-                      )
-                      .map((t) => (
-                        <label
-                          key={t.id}
-                          className={"sc-task " + (t.done ? "completed" : "")}
-                        >
-                          <input
-                            type="checkbox"
-                            aria-label={"完成" + t.text}
-                            checked={t.done}
-                            onChange={() => {
-                              setTasks((all) =>
-                                all.map((x) =>
-                                  x.id === t.id ? { ...x, done: !x.done } : x,
-                                ),
-                              );
-                              log(
-                                t.done ? "重新打开待办" : "完成待办",
-                                t.text,
-                                t.module,
-                              );
-                            }}
-                          />
-                          <span>
-                            <strong>{t.text}</strong>
-                            <small>
-                              {t.module} · {t.date}
-                              {!t.done && t.date < localDay()
-                                ? " · 已逾期"
-                                : ""}
-                            </small>
-                          </span>
-                        </label>
-                      ))}
-                  </div>
-                  {!tasks.some(
-                    (t) =>
-                      taskFilter === "all" ||
-                      t.done === (taskFilter === "done"),
-                  ) && <p className="sc-empty">暂无待办事项</p>}
-                </>
+                <MobileTaskBoard
+                  tasks={tasks}
+                  today={localDay()}
+                  onToggle={(t) => {
+                    setTasks((all) =>
+                      all.map((x) => (x.id === t.id ? { ...x, done: !x.done } : x)),
+                    );
+                    log(t.done ? "重新打开待办" : "完成待办", t.text, t.module);
+                  }}
+                  onImportant={(t) =>
+                    setTasks((all) =>
+                      all.map((x) =>
+                        x.id === t.id ? { ...x, important: !x.important } : x,
+                      ),
+                    )
+                  }
+                  onAdd={() => go("task:new")}
+                />
               ) : (
                 <>
                   <div className="sc-toolbar">
@@ -1074,7 +1075,10 @@ export default function Prototype() {
               }
               onSession={() =>
                 runSchool(async () => {
-                  await client().openSession(credentials.current);
+                  await client().openSession({
+                    ...credentials.current,
+                    proxyUrl: schoolConfig.proxyUrl || "",
+                  });
                   notify("请在电脑浏览器完成校方登录，再同步记录");
                 })
               }
@@ -1235,7 +1239,18 @@ export default function Prototype() {
               <p>本次数据在内存中，刷新后重置。</p>
             </div>
           )}
-          {module === "学校链接" && <SchoolLinks />}
+          {module === "学校链接" && (
+            <SchoolLinks bookmarks={bookmarks} onBookmarks={setBookmarks} />
+          )}
+          {(module === "工作实务" || module === "专业成长") && (
+            <MobileWebBook
+              section={module}
+              chapters={webbook[module] || []}
+              onChange={(next) =>
+                setWebbook((prev) => ({ ...prev, [module]: next }))
+              }
+            />
+          )}
           {module === "学生信息" && (
             <>
               <div className="sc-view-switch">
@@ -1371,6 +1386,24 @@ export default function Prototype() {
           )}
           {module === "工作留痕" && (
             <>
+              <MobileTaskBoard
+                tasks={tasks}
+                today={localDay()}
+                onToggle={(t) => {
+                  setTasks((all) =>
+                    all.map((x) => (x.id === t.id ? { ...x, done: !x.done } : x)),
+                  );
+                  log(t.done ? "重新打开待办" : "完成待办", t.text, t.module);
+                }}
+                onImportant={(t) =>
+                  setTasks((all) =>
+                    all.map((x) =>
+                      x.id === t.id ? { ...x, important: !x.important } : x,
+                    ),
+                  )
+                }
+                onAdd={() => go("task:new")}
+              />
               {viewSwitch()}
               {view === "calendar" ? (
                 <CalendarPanel events={logs} onOpen={openCalendar} />
@@ -1401,7 +1434,7 @@ export default function Prototype() {
               )}
             </>
           )}
-          {module && !["学生信息", "工作留痕", "学校链接"].includes(module) && (
+          {module && !["学生信息", "工作留痕", "学校链接", "工作实务", "专业成长"].includes(module) && (
             <>
               {module === "请假销假" && (
                 <>
@@ -1484,8 +1517,31 @@ export default function Prototype() {
                     <IconFilter size={17} />
                     筛选
                   </button>
-                  <button onClick={() => exportRows(found, module)}>
-                    导出
+                  <button
+                    onClick={() => {
+                      if (module === "请假销假") {
+                        const grouped = found.reduce((acc: Record<string, any[]>, r) => {
+                          const cat = classifyLeaveReason(r);
+                          (acc[cat] ||= []).push(r);
+                          return acc;
+                        }, {});
+                        const u = URL.createObjectURL(
+                          new Blob([JSON.stringify(grouped, null, 2)], {
+                            type: "application/json",
+                          }),
+                        );
+                        const a = document.createElement("a");
+                        a.href = u;
+                        a.download = "请假销假-按事由分类.json";
+                        a.click();
+                        setTimeout(() => URL.revokeObjectURL(u), 1000);
+                        notify("已按事由分类导出");
+                      } else {
+                        exportRows(found, module);
+                      }
+                    }}
+                  >
+                    {module === "请假销假" ? "分类导出" : "导出"}
                   </button>
                 </div>
               </div>
@@ -1675,12 +1731,23 @@ export default function Prototype() {
                   ))}
                 </div>
               )}
-              {record.files?.map((f: File, i: number) => (
-                <div className="sc-file-row" key={i}>
-                  <IconFolder size={20} />
-                  <span>{f.name}</span>
-                </div>
-              ))}
+              {record.files?.map((f: File, i: number) => {
+                const fileUrl = URL.createObjectURL(f);
+                urls.current.push(fileUrl);
+                const isImg = f.type.startsWith("image/") || /\.(png|jpe?g|gif|webp|svg)$/i.test(f.name);
+                const isPdf = f.type === "application/pdf" || /\.pdf$/i.test(f.name);
+                return (
+                  <div className="sc-attachment-preview" key={i}>
+                    <div className="sc-file-row">
+                      <IconFolder size={20} />
+                      <span>{f.name}</span>
+                      <a href={fileUrl} download={f.name}>下载</a>
+                    </div>
+                    {isImg && <img src={fileUrl} alt={f.name} />}
+                    {isPdf && <iframe title={f.name} src={fileUrl} />}
+                  </div>
+                );
+              })}
             </>
           )}
           {isForm && (

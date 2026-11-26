@@ -26,6 +26,19 @@ let context,
   page,
   opening = false;
 const adapter = createNnuAdapter(() => page);
+function parseProxy(proxyUrl) {
+  const raw = String(proxyUrl || "").trim();
+  if (!raw) return undefined;
+  let u;
+  try {
+    u = new URL(raw);
+  } catch {
+    throw Error("校园网代理地址格式不正确，例如 http://127.0.0.1:1080");
+  }
+  if (!["http:", "https:", "socks5:"].includes(u.protocol))
+    throw Error("校园网代理仅支持 http://、https:// 或 socks5://");
+  return { server: u.origin };
+}
 function authenticated(req) {
   const supplied = Buffer.from(
       (req.headers.authorization || "").replace(/^Bearer /, ""),
@@ -87,6 +100,7 @@ const server = http.createServer(async (req, res) => {
       try {
         if (!context) {
           const { chromium } = await import("playwright");
+          const proxy = parseProxy(login.proxyUrl);
           context = await chromium.launchPersistentContext(
             path.resolve(
               path.dirname(fileURLToPath(import.meta.url)),
@@ -95,6 +109,7 @@ const server = http.createServer(async (req, res) => {
             {
               channel: process.env.SC_SCHOOL_BROWSER || "msedge",
               headless: false,
+              ...(proxy ? { proxy } : {}),
             },
           );
           context.on("close", () => {
@@ -165,8 +180,20 @@ const server = http.createServer(async (req, res) => {
         ),
       );
     }
-    if (url.pathname.includes("/attachments/"))
-      return send({ error: "南师大附件接口尚未取得" }, 501);
+    const att = /^\/leaves\/([^/]+)\/attachments\/([^/]+)$/.exec(url.pathname);
+    if (req.method === "GET" && att) {
+      const file = await adapter.attachment(
+        decodeURIComponent(att[1]),
+        decodeURIComponent(att[2]),
+      );
+      res.writeHead(200, {
+        "Content-Type": file.mime,
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(file.name)}`,
+      });
+      return res.end(file.bytes);
+    }
     return send({ error: "接口不存在" }, 404);
   } catch (e) {
     return send({ error: e.message }, 502);

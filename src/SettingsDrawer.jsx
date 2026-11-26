@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import IconX from "@tabler/icons-react/dist/esm/icons/IconX.mjs";
 import { Button, Chip } from "./ui.jsx";
 import { defaultWidgets } from "./Home.jsx";
@@ -50,10 +50,20 @@ export function SettingsDrawer({
     schoolCreds?.baseUrl || schoolPresets.nnu.baseUrl,
   );
   const [schoolToken, setSchoolToken] = useState(schoolCreds?.token || "");
+  const [schoolProxyUrl, setSchoolProxyUrl] = useState(schoolCreds?.proxyUrl || "");
   const [schoolAutoSync, setSchoolAutoSync] = useState(
     schoolCreds?.autoSync !== false,
   );
   const [rememberSchool, setRememberSchool] = useState(true);
+
+  useEffect(() => {
+    if (!schoolCreds) return;
+    if (schoolCreds.username) setSchoolUser(schoolCreds.username);
+    if (schoolCreds.password) setSchoolPass(schoolCreds.password);
+    if (schoolCreds.baseUrl) setSchoolBaseUrl(schoolCreds.baseUrl);
+    if (schoolCreds.token) setSchoolToken(schoolCreds.token);
+    if (schoolCreds.proxyUrl !== undefined) setSchoolProxyUrl(schoolCreds.proxyUrl || "");
+  }, [schoolCreds]);
 
   if (!open) return null;
 
@@ -179,6 +189,7 @@ export function SettingsDrawer({
                   password: schoolPass,
                   baseUrl: schoolBaseUrl.trim() || schoolPresets.nnu.baseUrl,
                   token: schoolToken.trim(),
+                  proxyUrl: schoolProxyUrl.trim(),
                   autoSync: schoolAutoSync,
                   remember: rememberSchool,
                 });
@@ -220,6 +231,15 @@ export function SettingsDrawer({
                   type="password"
                   value={schoolToken}
                   onChange={(e) => setSchoolToken(e.target.value)}
+                />
+              </label>
+              <label>
+                校园网代理 / 隧道地址（选填，用于校外访问校园网）
+                <input
+                  aria-label="校园网代理地址"
+                  placeholder="如 http://127.0.0.1:1080 或 socks5://127.0.0.1:1080"
+                  value={schoolProxyUrl}
+                  onChange={(e) => setSchoolProxyUrl(e.target.value)}
                 />
               </label>
               <label style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>

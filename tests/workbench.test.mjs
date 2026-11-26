@@ -99,3 +99,20 @@ test("导出支持按分类存放附件", async () => {
   assert.ok(zip.file("附件/回家/a2_a2.txt"));
   assert.equal(manifest.every((m) => m.status === "已打包"), true);
 });
+
+test("请假种子自带证明材料路径且南师大附件映射兼容空与显式附件", async () => {
+  const { initialLeaves } = await import("../src/model.mjs");
+  const { normalizeNnu } = await import("../mobile/bridge/nnu.mjs");
+  assert.ok(initialLeaves.some((l) => l.paths && l.paths.length > 0));
+  const emptyAtt = normalizeNnu({ WID: "w1", USER_ID: "u1", FLOWSTATUS: "1" });
+  assert.deepEqual(emptyAtt.attachments, []);
+  const withAtt = normalizeNnu({
+    WID: "w2",
+    USER_ID: "u2",
+    FLOWSTATUS: "1",
+    FJ_ID: "f1",
+    FJ_NAME: "病历.pdf",
+  });
+  assert.equal(withAtt.attachments.length, 1);
+  assert.equal(withAtt.attachments[0].name, "病历.pdf");
+});

@@ -248,7 +248,7 @@ export const initialLeaves = [
     status: "请假中",
     leaveState: "请假中",
     summary: "随周明华导师团队前往宜兴生态定位观测站开展野外观察与样本采集。",
-    paths: [],
+    paths: ["请假证明/太湖湿地野外观察审批单.svg"],
     sensitive: false,
   },
   {
@@ -302,7 +302,7 @@ export const initialLeaves = [
     status: "请假中",
     leaveState: "请假中",
     summary: "受张伟岸导师指派参加学术会议并作分组论文报告。",
-    paths: [],
+    paths: ["请假证明/全国智能软件学术会议邀请函.svg"],
     sensitive: false,
   },
   {
@@ -338,7 +338,7 @@ export const initialLeaves = [
     status: "请假中",
     leaveState: "请假中",
     summary: "因急性肠胃炎赴医院复诊，需核实是否已返校销假。",
-    paths: [],
+    paths: ["请假证明/鼓楼医院急诊病历证明.svg"],
     sensitive: false,
   },
   {
@@ -356,7 +356,7 @@ export const initialLeaves = [
     status: "待审批",
     leaveState: "待审批",
     summary: "家庭事务申请周末回家探望父母，已附家长知情沟通说明。",
-    paths: [],
+    paths: ["请假证明/家长知情沟通确认单.svg"],
     sensitive: false,
   },
   {
@@ -374,7 +374,7 @@ export const initialLeaves = [
     status: "待销假",
     leaveState: "待销假",
     summary: "门诊手术就诊已返校，待上传病历证明并确认销假。",
-    paths: [],
+    paths: ["请假证明/口腔医院门诊诊断书.svg"],
     sensitive: false,
   },
   {
@@ -392,7 +392,7 @@ export const initialLeaves = [
     status: "已批准",
     leaveState: "已批准",
     summary: "前往无锡超算中心进行模型训练与性能实验测试。",
-    paths: [],
+    paths: ["请假证明/国家超算中心实验上机函.svg"],
     sensitive: false,
   },
   {

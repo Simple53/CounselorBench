@@ -1142,3 +1142,151 @@
   border-color: var(--sc-blue);
   color: #fff;
 }
+
+.sc-yp-group {
+  margin-top: 14px;
+}
+
+.sc-yp-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--sc-line);
+}
+
+.sc-yp-row a {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-decoration: none;
+  color: var(--sc-ink);
+  min-width: 0;
+  flex: 1;
+}
+
+.sc-yp-row small {
+  color: var(--sc-muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sc-wb-toc {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 12px;
+}
+
+.sc-wb-toc button {
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--sc-line);
+  background: var(--sc-bg);
+  font-size: 13px;
+}
+
+.sc-wb-toc button.active {
+  background: var(--sc-blue);
+  border-color: var(--sc-blue);
+  color: #fff;
+}
+
+.sc-wb-article {
+  border: 1px solid var(--sc-line);
+  border-radius: 8px;
+  padding: 12px;
+  line-height: 1.65;
+}
+
+.sc-wb-article h3 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.sc-wb-check {
+  list-style: none;
+  padding: 0;
+  margin: 6px 0;
+}
+
+.sc-wb-check label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.sc-wb-check .done {
+  text-decoration: line-through;
+  color: var(--sc-muted);
+}
+
+.sc-tb-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.sc-tb-modes button {
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--sc-line);
+  background: var(--sc-bg);
+  font-size: 12px;
+}
+
+.sc-tb-modes button.active {
+  background: var(--sc-blue);
+  border-color: var(--sc-blue);
+  color: #fff;
+}
+
+.sc-tb-box {
+  border: 1px solid var(--sc-line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-top: 10px;
+}
+
+.sc-tb-box h3 {
+  margin: 0 0 6px;
+  font-size: 14px;
+}
+
+.sc-tb-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.sc-tb-cell {
+  border: 1px solid var(--sc-line);
+  border-radius: 6px;
+  min-height: 44px;
+  padding: 4px;
+  font-size: 11px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--sc-bg);
+}
+
+.sc-tb-cell.today {
+  border-color: var(--sc-blue);
+}
+
+.sc-tb-cell.picked {
+  background: rgba(9, 97, 255, 0.1);
+}
+
+.sc-tb-cell b {
+  font-size: 10px;
+  color: var(--sc-blue);
+}

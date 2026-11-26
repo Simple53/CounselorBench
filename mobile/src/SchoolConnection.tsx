@@ -48,6 +48,9 @@ export function SchoolConnection({
     [error, setError] = useState("");
   const [username, setUsername] = useState(""),
     [password, setPassword] = useState(""),
+    [proxyUrl, setProxyUrl] = useState(""),
+    [schoolNotify, setSchoolNotify] = useState(config.schoolNotify !== false),
+    [schoolInterval, setSchoolInterval] = useState(config.schoolInterval || 60),
     [remember, setRemember] = useState(true);
   const keyboard = useKeyboard();
   useEffect(() => {
@@ -57,6 +60,7 @@ export function SchoolConnection({
       if (saved.username) setUsername(saved.username);
       if (saved.password) setPassword(saved.password);
       if (saved.token) setToken(saved.token);
+      if (saved.proxyUrl) setProxyUrl(saved.proxyUrl);
       setDraft((d: any) => ({
         ...d,
         ...(saved.baseUrl ? { baseUrl: saved.baseUrl } : {}),
@@ -88,13 +92,20 @@ export function SchoolConnection({
             const m = JSON.parse(mapping);
             if (!m.fields || typeof m.fields !== "object")
               throw Error("请填写字段映射");
-            const c = validateSchoolConfig({ ...draft, ...m });
+            const c = validateSchoolConfig({
+              ...draft,
+              ...m,
+              proxyUrl: proxyUrl.trim(),
+              schoolNotify,
+              schoolInterval,
+            });
             if (remember) {
               await saveRememberedSchoolAuth({
                 ...c,
                 token,
                 username,
                 password,
+                proxyUrl: proxyUrl.trim(),
               });
             } else {
               clearRememberedSchoolAuth();
@@ -175,6 +186,16 @@ export function SchoolConnection({
           />
         </label>
         <label>
+          校园网代理地址（选填，如 http://127.0.0.1:1080）
+          <KeyboardInput
+            aria-label="校园网代理地址"
+            placeholder="http://127.0.0.1:1080 或 socks5://127.0.0.1:1080"
+            value={proxyUrl}
+            onChange={(e) => setProxyUrl(e.target.value)}
+            onBlur={() => keyboard.hide()}
+          />
+        </label>
+        <label>
           <input
             type="checkbox"
             checked={draft.autoSync !== false}
@@ -182,7 +203,38 @@ export function SchoolConnection({
               setDraft((s: any) => ({ ...s, autoSync: e.target.checked }))
             }
           />
-          自动同步（每分钟）
+          接入校园网自动心跳抓取
+        </label>
+        <label>
+          心跳抓取间隔
+          <select
+            aria-label="心跳抓取间隔"
+            value={schoolInterval}
+            onChange={(e) => setSchoolInterval(Number(e.target.value))}
+          >
+            {[30, 60, 120, 300].map((sec) => (
+              <option key={sec} value={sec}>
+                {sec} 秒
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={schoolNotify}
+            onChange={(e) => {
+              setSchoolNotify(e.target.checked);
+              if (
+                e.target.checked &&
+                typeof Notification !== "undefined" &&
+                Notification.permission === "default"
+              ) {
+                Notification.requestPermission();
+              }
+            }}
+          />
+          有新请销假记录时弹出桌面及消息提醒
         </label>
         <label>
           <input

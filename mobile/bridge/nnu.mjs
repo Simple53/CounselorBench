@@ -13,7 +13,15 @@ export function normalizeNnu(row) {
     endAt: String(row.RETURN_TIME || ""),
     summary: String(row.REASON || ""),
     destination: String(row.OUT_PLACE || row.DESTINATION || ""),
-    attachments: [],
+    attachments: Array.isArray(row.ATTACHMENTS)
+      ? row.ATTACHMENTS.filter((a) => a && a.id && a.name).map((a) => ({
+          id: String(a.id),
+          name: String(a.name),
+          mime: String(a.mime || ""),
+        }))
+      : row.FJ_ID && row.FJ_NAME
+        ? [{ id: String(row.FJ_ID), name: String(row.FJ_NAME), mime: "" }]
+        : [],
   };
   if (row.LEAVE_TYPE) out.leaveType = String(row.LEAVE_TYPE);
   if (row.TUTOR_NAME) out.advisor = String(row.TUTOR_NAME);
@@ -69,6 +77,30 @@ export function createNnuAdapter(getPage) {
         complete: false,
         total: null,
         capabilities: ["close"],
+      };
+    },
+    async attachment(id, fileId) {
+      const page = getPage();
+      if (!page) throw Error("请先建立校方会话并手动登录");
+      const row = (await rows()).find((r) => String(r.WID) === String(id));
+      if (!row) throw Error("记录已离开当前页，请重新同步");
+      const list = Array.isArray(row.ATTACHMENTS)
+        ? row.ATTACHMENTS
+        : row.FJ_ID && row.FJ_NAME
+          ? [{ id: String(row.FJ_ID), name: String(row.FJ_NAME), url: row.FJ_URL || "" }]
+          : [];
+      const item = list.find((a) => String(a.id) === String(fileId));
+      if (!item?.url) {
+        const err = Error("南师大附件接口尚未取得");
+        err.status = 501;
+        throw err;
+      }
+      const res = await page.context().request.get(item.url);
+      if (!res.ok()) throw Error(`校方附件拉取失败（HTTP ${res.status()}）`);
+      return {
+        bytes: Buffer.from(await res.body()),
+        mime: res.headers()["content-type"] || "application/octet-stream",
+        name: item.name || `${fileId}`,
       };
     },
     async detail(id) {
