@@ -18,6 +18,7 @@ export async function buildPackage({
   columns,
   attachments,
   title,
+  classifyBy,
 }) {
   // 固定导出行号，确保文件清单能关联到未包含内部 ID 的表格。
   columns = [
@@ -25,6 +26,15 @@ export async function buildPackage({
     ...columns.filter((c) => c.id !== "exportRow"),
   ];
   rows = rows.map((r, i) => ({ ...r, exportRow: i + 1 }));
+  // 分类存储：附件放入「附件/<分类>/」，同一附件以首次出现的记录分类为准。
+  const folderOf = new Map();
+  if (classifyBy)
+    for (const r of rows)
+      for (const id of r.attachmentIds || [])
+        if (!folderOf.has(id))
+          folderOf.set(id, safeFilename(r[classifyBy] || "未分类"));
+  const attPath = (a) =>
+    `附件/${folderOf.has(a.id) ? folderOf.get(a.id) + "/" : ""}${a.id}_${safeFilename(a.name)}`;
   const ZIP = (await import("jszip")).default;
   const zip = new ZIP();
   const plain = rows.map((r) =>
@@ -65,7 +75,7 @@ export async function buildPackage({
                 .map((id) => {
                   const a = attachments.find((v) => v.id === id);
                   return a?.file
-                    ? `<a href="附件/${escapeHTML(a.id + "_" + safeFilename(a.name))}">${escapeHTML(a.name)}</a>`
+                    ? `<a href="${escapeHTML(attPath(a))}">${escapeHTML(a.name)}</a>`
                     : a
                       ? escapeHTML(a.name) + "（文件不可用）"
                       : "";
@@ -83,7 +93,7 @@ export async function buildPackage({
   for (const a of collectAttachments(rows, attachments)) {
     if (a.file) {
       try {
-        const path = `附件/${a.id}_${safeFilename(a.name)}`;
+        const path = attPath(a);
         zip.file(path, await a.file.arrayBuffer());
         manifest.push({ id: a.id, name: a.name, path, status: "已打包" });
       } catch {
@@ -121,11 +131,17 @@ export function openPreview(row, columns, attachments) {
   const html = String(
     `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>${escapeHTML(row.title || row.name || "记录预览")}</title><style>body{font:16px/1.7 system-ui;max-width:900px;margin:40px auto;padding:0 24px}dl{display:grid;grid-template-columns:130px 1fr;gap:16px}dt{font-weight:bold}dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}a{display:block;color:#0961ff;margin:12px 0}button{padding:8px 16px}</style><h1>${escapeHTML(row.title || row.name || "记录预览")}</h1><dl>${columns.map((c) => `<dt>${escapeHTML(c.label)}</dt><dd>${escapeHTML(row[c.id])}</dd>`).join("")}</dl><h2>附件</h2>${
       collectAttachments([row], attachments)
-        .map((a) =>
-          a.url
-            ? `<a href="${escapeHTML(a.url)}" download="${escapeHTML(a.name)}">${escapeHTML(a.name)}</a>`
-            : `<p>${escapeHTML(a.name)}（未关联可读文件）</p>`,
-        )
+        .map((a) => {
+          if (!a.url) return `<p>${escapeHTML(a.name)}（未关联可读文件）</p>`;
+          const type = String(a.type || a.file?.type || "");
+          const ext = a.name.split(".").pop().toLowerCase();
+          const link = `<a href="${escapeHTML(a.url)}" download="${escapeHTML(a.name)}">${escapeHTML(a.name)}（下载）</a>`;
+          if (type.startsWith("image/") || ["png", "jpg", "jpeg", "gif", "webp"].includes(ext))
+            return `<figure><img src="${escapeHTML(a.url)}" alt="${escapeHTML(a.name)}" style="max-width:100%">${link}</figure>`;
+          if (type === "application/pdf" || ext === "pdf")
+            return `<figure><iframe src="${escapeHTML(a.url)}" style="width:100%;height:600px;border:1px solid #ddd"></iframe>${link}</figure>`;
+          return link;
+        })
         .join("") || "<p>无附件</p>"
     }</html>`,
   );

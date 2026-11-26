@@ -780,3 +780,75 @@ button:active:not(:disabled) {
   font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
+
+/* —— 学校链接黄页 —— */
+.yellow-pages { max-width: 960px; }
+.yp-form { display: grid; grid-template-columns: 1fr 1.6fr 8rem 1.2fr auto; gap: 8px; margin: 8px 0 16px; }
+.yp-group { margin-top: 20px; }
+.yp-group h2 { font-size: 14px; font-weight: 600; margin: 0 0 4px; padding-bottom: 4px; border-bottom: 1px solid var(--separator); }
+.yp-group ul { list-style: none; margin: 0; padding: 0; }
+.yp-group li { display: grid; grid-template-columns: 16rem 1fr 14rem 4rem; gap: 12px; align-items: center; padding: 6px 4px; border-bottom: 1px solid var(--separator); font-size: 14px; }
+.yp-group li:hover { background: var(--surface-secondary); }
+.yp-group a { color: var(--accent); font-weight: 500; text-decoration: none; }
+.yp-group a:hover { text-decoration: underline; }
+.yp-note, .yp-url { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* —— 待完成任务看板 —— */
+.taskboard { background: var(--surface); border: 1px solid var(--border); border-radius: var(--card-radius); padding: 16px; margin-bottom: 16px; }
+.tb-head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
+.tb-head h2 { margin: 0 0 8px; font-size: 18px; font-weight: 600; }
+.tb-sum, .tb-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.tb-three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
+.tb-quad { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 8px; }
+.tb-col, .tb-q { background: var(--surface-secondary); border-radius: var(--radius); padding: 12px; min-height: 120px; }
+.tb-col.danger { background: var(--danger-soft); }
+.tb-Q1 { background: var(--danger-soft); }
+.tb-Q2 { background: var(--accent-soft); }
+.tb-Q3 { background: var(--warning-soft); }
+.tb-col h3, .tb-q h3, .tb-picked { font-size: 14px; font-weight: 600; margin: 0 0 8px; }
+.tb-q h3 small { color: var(--muted); font-weight: 400; margin-left: 6px; }
+.tb-hint, .tb-empty { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
+.tb-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.tb-item { display: grid; grid-template-columns: auto 1fr auto auto; gap: 8px; align-items: center; background: var(--surface); border-radius: 6px; padding: 6px 8px; font-size: 13px; }
+.tb-item.done .tb-text { text-decoration: line-through; color: var(--muted); }
+.tb-date { color: var(--muted); font-size: 12px; }
+.tb-star { border: 1px solid var(--border); background: transparent; border-radius: 6px; font-size: 11px; padding: 2px 6px; color: var(--muted); cursor: pointer; }
+.tb-star.on { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
+.tb-nav { display: flex; gap: 8px; align-items: center; margin: 12px 0 8px; flex-wrap: wrap; }
+.tb-week, .tb-month { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.tb-wn { text-align: center; font-size: 12px; color: var(--muted); }
+.tb-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 56px; padding: 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); text-align: left; cursor: pointer; font-size: 12px; overflow: hidden; }
+.tb-week .tb-cell { min-height: 120px; }
+.tb-cell.today { border-color: var(--accent); }
+.tb-cell.picked { background: var(--accent-soft); }
+.tb-cell.dim { opacity: 0.45; }
+.tb-cell b { background: var(--accent); color: var(--accent-foreground); border-radius: 8px; padding: 0 6px; font-weight: 500; }
+.tb-cell b.late { background: var(--danger); color: #fff; }
+.tb-cell i { font-style: normal; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.tb-cell i.done { text-decoration: line-through; }
+@media (max-width: 900px) { .tb-three, .tb-quad { grid-template-columns: 1fr; } .yp-group li { grid-template-columns: 1fr auto; } .yp-note, .yp-url { display: none; } .yp-form { grid-template-columns: 1fr; } }
+
+/* —— WebBook —— */
+.webbook { max-width: 1100px; }
+.wb-head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center; }
+.wb-tools { display: flex; gap: 8px; }
+.wb-layout { display: grid; grid-template-columns: 15rem minmax(0, 1fr); gap: 16px; margin-top: 12px; align-items: start; }
+.wb-toc { background: var(--surface); border: 1px solid var(--border); border-radius: var(--card-radius); padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+.wb-toc ol { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.wb-toc li button { width: 100%; text-align: left; border: 0; background: transparent; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 14px; color: var(--foreground); }
+.wb-toc li button:hover { background: var(--surface-secondary); }
+.wb-toc li button.active { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+.wb-toc form { display: flex; flex-direction: column; gap: 6px; }
+.wb-page { background: var(--surface); border: 1px solid var(--border); border-radius: var(--card-radius); padding: 20px 24px; min-height: 360px; line-height: 1.75; }
+.wb-page h1 { font-size: 22px; font-weight: 600; margin: 8px 0 12px; }
+.wb-page h2 { font-size: 17px; font-weight: 600; margin: 20px 0 6px; }
+.wb-page h3, .wb-page h4 { font-size: 15px; font-weight: 600; margin: 14px 0 4px; }
+.wb-bar { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; align-items: center; }
+.wb-actions { display: flex; gap: 6px; }
+.wb-check { list-style: none; padding-left: 0; }
+.wb-check .done { text-decoration: line-through; color: var(--muted); }
+.wb-edit { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.wb-edit textarea { font: inherit; line-height: 1.6; resize: vertical; }
+.wb-help { color: var(--muted); font-size: 12px; margin: 0; }
+.wb-pager { display: flex; justify-content: space-between; margin-top: 24px; padding-top: 12px; border-top: 1px solid var(--separator); }
+@media (max-width: 900px) { .wb-layout { grid-template-columns: 1fr; } }

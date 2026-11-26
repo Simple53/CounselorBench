@@ -1,6 +1,14 @@
 import { SchoolLinksView } from "./SchoolLinksView.jsx";
+import { WebBook } from "./WebBook.jsx";
+import { TaskBoard } from "./TaskBoard.jsx";
+import { seedWebbook } from "./webbook.mjs";
 import { LeaveView } from "./LeaveView.jsx";
-import { validateLeave, transitionLeave, leaveStatus } from "./leave.mjs";
+import {
+  validateLeave,
+  transitionLeave,
+  leaveStatus,
+  leaveActions,
+} from "./leave.mjs";
 import { Photos } from "./Photos.jsx";
 import { BriefArchive } from "./BriefArchive.jsx";
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
@@ -108,6 +116,10 @@ const defaults = {
   extra: [],
   detailFields: ["number", "className", "year", "political", "phone", "origin"],
   grid: defaultWidgets,
+  schoolEnabled: false,
+  schoolNotify: true,
+  schoolInterval: 60,
+  bookmarks: [],
   templates: defaultTemplates,
 };
 function readPrefs() {
@@ -391,8 +403,31 @@ export function App({
     setDraftLinks("");
     setModal("record");
   }
+  const prefsRef = useRef(prefs),
+    seenSchool = useRef(null),
+    bootedSchool = useRef(false);
+  prefsRef.current = prefs;
+  // 心跳抓取到新记录时：应用内提示 + 桌面通知（设置中可关闭）。首次抓取只建立基线。
+  function announceNew(parsed) {
+    const prev = seenSchool.current;
+    seenSchool.current = new Set(parsed.map((r) => r.id));
+    if (!prev) return;
+    const fresh = parsed.filter((r) => !prev.has(r.id));
+    if (!fresh.length) return;
+    const text = `校方新增 ${fresh.length} 条请销假：${fresh
+      .slice(0, 3)
+      .map((r) => `${r.studentName || "学生"}（${r.status}）`)
+      .join("、")}`;
+    notify(text);
+    if (
+      prefsRef.current.schoolNotify !== false &&
+      typeof Notification !== "undefined" &&
+      Notification.permission === "granted"
+    )
+      new Notification("辅智通 · 校方请销假", { body: text });
+  }
   const syncSchoolLeaves = useCallback(
-    async (credsOverride = null, establishSession = false) => {
+    async (credsOverride = null, establishSession = false, quiet = false) => {
       const cfg = credsOverride || schoolCreds || {
         preset: "nnu",
         baseUrl: schoolPresets.nnu.baseUrl,
@@ -454,7 +489,8 @@ export function App({
             busy: false,
             autoSync: Boolean(cfg.autoSync),
           }));
-          notify(`校方请销假实时同步完成（${parsed.length} 条）`);
+          announceNew(parsed);
+          if (!quiet) notify(`校方请销假实时同步完成（${parsed.length} 条）`);
           return;
         }
         // 2. 网页预览版：连接本机 Playwright 连接器 (默认 http://127.0.0.1:4175)
@@ -492,14 +528,15 @@ export function App({
           busy: false,
           autoSync: Boolean(cfg.autoSync),
         }));
-        notify(`已抓取校方请销假记录 ${mapped.length} 条`);
+        announceNew(mapped);
+        if (!quiet) notify(`已抓取校方请销假记录 ${mapped.length} 条`);
       } catch (err) {
         const msg =
           err.message === "Failed to fetch"
             ? "未连接校方本机连接器（127.0.0.1:4175）或尚未打开学校浏览器会话"
             : err.message;
         setSchoolMeta((m) => ({ ...m, busy: false, syncError: msg, autoSync: false }));
-        notify(msg);
+        if (!quiet) notify(msg);
       }
     },
     [schoolCreds, currentWorkspace, students],
@@ -510,12 +547,16 @@ export function App({
     });
   }, []);
   useEffect(() => {
-    if (!schoolMeta.autoSync || !schoolCreds) return;
+    if (!prefs.schoolEnabled || !schoolCreds) return;
+    if (!bootedSchool.current) {
+      bootedSchool.current = true;
+      syncSchoolLeaves(schoolCreds, true, true);
+    }
     const t = setInterval(() => {
-      if (!document.hidden) syncSchoolLeaves(schoolCreds, false);
-    }, 60000);
+      if (!document.hidden) syncSchoolLeaves(schoolCreds, false, true);
+    }, Math.max(30, Number(prefs.schoolInterval) || 60) * 1000);
     return () => clearInterval(t);
-  }, [schoolMeta.autoSync, schoolCreds, syncSchoolLeaves]);
+  }, [prefs.schoolEnabled, prefs.schoolInterval, schoolCreds, syncSchoolLeaves]);
   function editStudent(row) {
     const raw = students.find((s) => s.id === row.id) || row;
     setEditingItem(raw);
@@ -585,8 +626,8 @@ export function App({
   function preview(row, fs) {
     setPreviewSpec({ row, fields: fs });
   }
-  function requestExport(rows, columns, title = page) {
-    setExportSpec({ rows, columns, title });
+  function requestExport(rows, columns, title = page, extra = {}) {
+    setExportSpec({ rows, columns, title, ...extra });
     setFormat("xlsx");
     setModal("export");
   }
@@ -665,6 +706,61 @@ export function App({
       attachmentIds: row.attachmentIds,
     });
     notify("记录已完成");
+  }
+  function toggleImportant(task) {
+    setTasks((s) =>
+      s.map((t) => (t.id === task.id ? { ...t, important: !t.important } : t)),
+    );
+  }
+  const [leaveAct, setLeaveAct] = useState(null);
+  function openSchoolAction(row, action) {
+    setLeaveAct({ row, action, comment: "已核实，同意销假", busy: false });
+  }
+  // 在本系统办理校方记录：经本机服务/连接器提交到原始系统，再重新读取校方状态确认。
+  async function submitSchoolAction() {
+    const { row, action, comment } = leaveAct;
+    if (!comment.trim()) return notify("请填写审核意见");
+    setLeaveAct((a) => ({ ...a, busy: true }));
+    try {
+      const ext = row.externalId || String(row.id).replace(/^school:/, "");
+      if (typeof window !== "undefined" && window.__SC_CSRF) {
+        const r = await fetch(
+          `/api/school/leaves/${encodeURIComponent(ext)}/actions`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-SC-CSRF": window.__SC_CSRF,
+              "X-SC-Workspace": currentWorkspace?.id || "",
+            },
+            body: JSON.stringify({ action, comment: comment.trim() }),
+          },
+        );
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw Error(d.error || "校方提交失败");
+      } else {
+        const baseUrl = schoolCreds?.baseUrl || schoolPresets.nnu.baseUrl;
+        let tok = schoolCreds?.token || "";
+        if (!tok) {
+          const br = await fetch(new URL("/bootstrap", baseUrl)).catch(() => null);
+          if (br?.ok) tok = (await br.json()).token || "";
+        }
+        await createSchoolClient({ ...schoolPresets.nnu, baseUrl }, tok).act(
+          ext,
+          action,
+          comment,
+        );
+      }
+      log("校方请销假办理", `${row.studentName} · ${action}`, "请假销假", {
+        entityId: row.id,
+      });
+      setLeaveAct(null);
+      notify("已提交到校方系统，正在重新读取最新状态");
+      await syncSchoolLeaves(null, false, true);
+    } catch (e) {
+      setLeaveAct((a) => a && { ...a, busy: false });
+      notify(e.message === "Failed to fetch" ? "未连接校方本机连接器" : e.message);
+    }
   }
   function toggleTask(task) {
     setTasks((s) =>
@@ -793,7 +889,10 @@ export function App({
       <main>
         {page === "学校链接" ? (
           <div className="workspace-main">
-            <SchoolLinksView />
+            <SchoolLinksView
+              bookmarks={prefs.bookmarks || []}
+              onBookmarks={(bookmarks) => patchPrefs({ bookmarks })}
+            />
           </div>
         ) : page === "工作首页" ? (
           <Home
@@ -825,8 +924,44 @@ export function App({
               }}
             />
           </div>
+        ) : ["工作实务", "专业成长"].includes(page) ? (
+          <div className="workspace-main">
+            <WebBook
+              key={page}
+              section={page}
+              chapters={{ ...seedWebbook(), ...(prefs.webbook || {}) }[page]}
+              onChange={(next) =>
+                patchPrefs({
+                  webbook: { ...seedWebbook(), ...(prefs.webbook || {}), [page]: next },
+                })
+              }
+            >
+              <details className="wb-legacy">
+                <summary>原有记录台账</summary>
+                {tableFor(
+                  page,
+                  recordRows.filter((r) => r.module === page),
+                  recordFields,
+                  "record",
+                  {
+                    onAdd: addRecord,
+                    onComplete: completeRecord,
+                    onEdit: editRecord,
+                    onDelete: deleteRecord,
+                  },
+                )}
+              </details>
+            </WebBook>
+          </div>
         ) : page === "工作留痕" ? (
           <div className="workspace-main">
+            <TaskBoard
+              tasks={tasks}
+              today={today()}
+              onToggle={toggleTask}
+              onImportant={toggleImportant}
+              onAdd={() => setModal("task")}
+            />
             <div className="daily-toolbar">
               <label>
                 简报日期
@@ -1110,7 +1245,7 @@ export function App({
                   students={students}
                   records={records}
                   schoolRecords={schoolMeta.records}
-                  schoolMeta={schoolMeta}
+                  schoolMeta={{ ...schoolMeta, autoSync: !!prefs.schoolEnabled }}
                   onSyncSchool={() => syncSchoolLeaves(null, true)}
                   onOpenSchoolSettings={() => settings("学校接入")}
                   onSelectStudent={(sid) => {
@@ -1130,6 +1265,8 @@ export function App({
                   onPreview={preview}
                   onExport={requestExport}
                   onAction={(row, action) => {
+                    if (row.source === "school")
+                      return openSchoolAction(row, action);
                     try {
                       const next = transitionLeave(row, action);
                       const updated = records.map((r) =>
@@ -1903,6 +2040,33 @@ export function App({
           onClose={() => setModal("")}
         />
       )}
+      {leaveAct && (
+        <Modal
+          title="办理校方请销假"
+          onClose={() => !leaveAct.busy && setLeaveAct(null)}
+        >
+          <p>
+            {leaveAct.row.studentName} · {leaveAct.row.status} →{" "}
+            {leaveActions[leaveAct.row.status]?.find(
+              (a) => a.action === leaveAct.action,
+            )?.label || leaveAct.action}
+          </p>
+          <label>
+            审核意见（将提交到校方系统）
+            <textarea
+              aria-label="审核意见"
+              rows={3}
+              value={leaveAct.comment}
+              onChange={(e) =>
+                setLeaveAct((a) => ({ ...a, comment: e.target.value }))
+              }
+            />
+          </label>
+          <Button primary disabled={leaveAct.busy} onClick={submitSchoolAction}>
+            {leaveAct.busy ? "提交中…" : "确认提交"}
+          </Button>
+        </Modal>
+      )}
       {modal === "export" && exportSpec && (
         <Modal
           title="导出数据与附件"
@@ -2012,7 +2176,7 @@ export function App({
         model={model}
         setModel={setModel}
         schoolCreds={schoolCreds}
-        schoolMeta={schoolMeta}
+        schoolMeta={{ ...schoolMeta, autoSync: !!prefs.schoolEnabled }}
         onSaveSchoolCreds={async (creds) => {
           setSchoolCreds(creds);
           if (creds.remember) await saveRememberedSchoolAuth(creds);

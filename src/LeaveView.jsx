@@ -283,6 +283,16 @@ export function LeaveView({
         >
           导出记录与附件
         </Button>
+        <Button
+          disabled={!scopedRows.length}
+          onClick={() =>
+            onExport(scopedRows, leaveFields, "请假销假台账（按事由分类）", {
+              classifyBy: "reasonCategory",
+            })
+          }
+        >
+          按事由分类导出附件
+        </Button>
       </div>
 
       <div className="leave-category-bar" aria-label="按请假事由分类筛选">
@@ -368,7 +378,9 @@ export function LeaveView({
                 </td>
                 <td>
                   <div style={{ display: "flex", gap: 4 }}>
-                    {(leaveActions[r.status] || []).map((a) => (
+                    {(leaveActions[r.status] || [])
+                      .filter((a) => r.source !== "school" || a.action === "close")
+                      .map((a) => (
                       <Button
                         key={a.action}
                         size="sm"

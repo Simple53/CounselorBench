@@ -6,6 +6,11 @@ import { modelPresets } from "./model-presets.mjs";
 import { fields } from "./model.mjs";
 import { schoolPresets, nnuLeaveReviewUrl } from "./school-client.mjs";
 
+function askNotifyPermission() {
+  if (typeof Notification !== "undefined" && Notification.permission === "default")
+    Notification.requestPermission();
+}
+
 const settingsTabs = [
   "外观设置",
   "学校接入",
@@ -118,6 +123,49 @@ export function SettingsDrawer({
         {tab === "学校接入" && (
           <>
             <h3>学校请销假账户接入（南京师范大学）</h3>
+            <div className="school-switch">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={!!prefs.schoolEnabled}
+                  onChange={(e) => {
+                    patchPrefs({ schoolEnabled: e.target.checked });
+                    if (e.target.checked) askNotifyPermission();
+                  }}
+                />
+                <span>接入校园网：开启后在后台按心跳间隔自动抓取请销假</span>
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={prefs.schoolNotify !== false}
+                  onChange={(e) => {
+                    patchPrefs({ schoolNotify: e.target.checked });
+                    if (e.target.checked) askNotifyPermission();
+                  }}
+                />
+                <span>有新请销假时弹出桌面提醒</span>
+              </label>
+              <label>
+                心跳间隔
+                <select
+                  aria-label="心跳间隔"
+                  value={prefs.schoolInterval || 60}
+                  onChange={(e) =>
+                    patchPrefs({ schoolInterval: Number(e.target.value) })
+                  }
+                >
+                  {[30, 60, 120, 300].map((n) => (
+                    <option key={n} value={n}>
+                      {n} 秒
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p style={{ fontSize: 12, color: "var(--muted)", margin: 0 }}>
+                首次保存账号后需在弹出的学校浏览器里完成一次登录（含验证码）；该浏览器保留登录状态，之后启动将复用，无需反复验证。本系统不伪造 IP 或绕过学校认证，登录失效时需重新登录。
+              </p>
+            </div>
             <p style={{ fontSize: 12, color: "var(--muted)", margin: 0 }}>
               输入学校统一身份认证工号与密码，保存后支持一键开启校方浏览器会话并每 60 秒实时同步请销假待办与离校状态。
             </p>
